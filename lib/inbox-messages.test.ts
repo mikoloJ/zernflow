@@ -32,11 +32,21 @@ describe("mapZernioMessage", () => {
       },
       "c1",
     );
-    expect(m.extra?.attachments).toEqual([{ type: "image", url: "https://cdn/x.jpg", previewUrl: null, filename: null }]);
+    expect(m.extra?.attachments).toEqual([
+      { type: "image", url: "https://cdn/x.jpg", previewUrl: null, filename: null },
+      { type: "video", url: undefined, previewUrl: null, filename: null },
+    ]);
     expect(m.extra?.storyReply).toEqual({ url: null });
     expect(m.extra?.isDeleted).toBe(true);
     expect(m.extra?.deliveryError).toBe("Outside the 24 hour window");
     expect(m.extra?.reactions).toEqual([{ emoji: "❤️", fromMe: true }]);
+  });
+});
+
+describe("unsupported messages", () => {
+  it("flags messages with nothing to show", () => {
+    expect(mapZernioMessage({ id: "9", direction: "outgoing", message: "" }, "c1").extra?.unsupported).toBe(true);
+    expect(mapZernioMessage({ id: "9", direction: "outgoing", message: "hi" }, "c1").extra?.unsupported).toBe(false);
   });
 });
 

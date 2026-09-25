@@ -33,6 +33,8 @@ export interface InboxMessageExtra {
   /** Who sent an outbound message: an automation/flow, or a person. */
   sentBy?: "automation" | "flow" | "human" | null;
   automationName?: string | null;
+  /** The platform returned nothing we can show (e.g. a card/template sent by another tool). */
+  unsupported?: boolean;
 }
 
 /** The DB `messages` row shape the inbox already uses, plus rich extras. */
@@ -59,7 +61,7 @@ export function mapZernioMessage(m: any, conversationId: string): InboxMessage {
   const outbound = m.direction === "outgoing" || m.direction === "outbound";
   const attachments: InboxAttachment[] = Array.isArray(m.attachments)
     ? m.attachments
-        .filter((a: any) => a && (a.url || a.previewUrl))
+        .filter((a: any) => a && (a.url || a.previewUrl || a.type))
         .map((a: any) => ({
           type: a.type ?? "file",
           url: a.url ?? undefined,
@@ -78,11 +80,14 @@ export function mapZernioMessage(m: any, conversationId: string): InboxMessage {
       : [];
 
   const deliveryStatus = (m.deliveryStatus ?? null) as InboxMessageExtra["deliveryStatus"];
+  const text: string | null = m.message ?? m.text ?? null;
+  const unsupported =
+    !text?.trim() && attachments.length === 0 && buttons.length === 0 && !m.storyReply && !m.isStoryMention && !m.isDeleted;
   return {
     id: String(m.id),
     conversation_id: conversationId,
     direction: outbound ? "outbound" : "inbound",
-    text: m.message ?? m.text ?? null,
+    text,
     attachments: null,
     quick_reply_payload: null,
     postback_payload: null,
@@ -107,6 +112,7 @@ export function mapZernioMessage(m: any, conversationId: string): InboxMessage {
         ? m.reactions.filter((r: any) => r?.emoji).map((r: any) => ({ emoji: r.emoji, fromMe: !!r.fromMe }))
         : [],
       sentBy: null,
+      unsupported,
     },
   };
 }
