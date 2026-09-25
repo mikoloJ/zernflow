@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createZernioClient } from "@/lib/zernio-client";
 import { messagePreview } from "@/lib/message-preview";
 import {
+  fillAutomationTemplates,
   enrichWithAutomations,
   enrichWithLocal,
   mapZernioMessage,
@@ -30,7 +31,7 @@ export async function GET(request: NextRequest) {
   // Look up the Zernio conversation ID and workspace API key
   const { data: conversation } = await supabase
     .from("conversations")
-    .select("late_conversation_id, workspace_id, channels(late_account_id)")
+    .select("late_conversation_id, workspace_id, contact_id, channel_id, channels(late_account_id)")
     .eq("id", conversationId)
     .single();
 
@@ -77,7 +78,14 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(raw.filter((_, i) => messages[i].extra?.unsupported).slice(0, 5));
     }
 
-    const [{ data: local }, { data: automations }] = await Promise.all([
+    const { data: senderLink } = await supabase
+      .from("contact_channels")
+      .select("platform_sender_id")
+      .eq("contact_id", conversation.contact_id)
+      .eq("channel_id", conversation.channel_id)
+      .maybeSingle();
+
+    const [{ data: local }, { data: automations }, { data: runs }] = await Promise.all([
       supabase
         .from("messages")
         .select("text, attachments, created_at, sent_by_flow_id, sent_by_user_id")
@@ -87,22 +95,57 @@ export async function GET(request: NextRequest) {
         .limit(500),
       supabase
         .from("comment_automations")
-        .select("name, config")
+        .select("id, name, config")
         .eq("workspace_id", conversation.workspace_id),
+      senderLink?.platform_sender_id
+        ? supabase
+            .from("comment_logs")
+            .select("created_at, matched_automation_id, author_name, author_username, comment_text")
+            .eq("channel_id", conversation.channel_id)
+            .eq("author_id", senderLink.platform_sender_id)
+            .eq("dm_sent", true)
+            .not("matched_automation_id", "is", null)
+            .order("created_at", { ascending: false })
+            .limit(50)
+        : Promise.resolve({ data: [] as never[] }),
     ]);
 
-    messages = enrichWithLocal(messages, local ?? []);
-    messages = enrichWithAutomations(
-      messages,
+    const templates = new Map(
       (automations ?? []).map((a) => {
         const c = parseConfig(a.config);
-        return {
-          name: a.name,
-          openingText: c.openingDm.enabled ? c.openingDm.text : null,
-          openingButton: c.openingDm.enabled ? c.openingDm.buttonLabel : null,
-          linkText: c.linkDm.text,
-          linkButtons: c.linkDm.buttons,
-        };
+        return [
+          a.id,
+          {
+            name: a.name,
+            openingText: c.openingDm.enabled ? c.openingDm.text : null,
+            openingButton: c.openingDm.enabled ? c.openingDm.buttonLabel : null,
+            linkText: c.linkDm.text,
+            linkButtons: c.linkDm.buttons,
+          },
+        ] as const;
+      }),
+    );
+
+    messages = enrichWithLocal(messages, local ?? []);
+    messages = enrichWithAutomations(messages, [...templates.values()]);
+    messages = fillAutomationTemplates(
+      messages,
+      (runs ?? []).flatMap((r) => {
+        const template = r.matched_automation_id ? templates.get(r.matched_automation_id) : undefined;
+        if (!template) return [];
+        const name = r.author_name || r.author_username || "";
+        return [
+          {
+            at: r.created_at,
+            template,
+            vars: {
+              first_name: name.split(/\s+/)[0] || "there",
+              name,
+              username: r.author_username || "",
+              comment: r.comment_text,
+            },
+          },
+        ];
       }),
     );
 
