@@ -5,6 +5,7 @@ import { Search, MessageSquare } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 import { PlatformIcon } from "@/components/platform-icon";
+import { Avatar } from "@/components/inbox/avatar";
 import type { Database, Platform, ConversationStatus } from "@/lib/types/database";
 
 type Conversation = Database["public"]["Tables"]["conversations"]["Row"] & {
@@ -172,17 +173,11 @@ export function ConversationList({
             >
               {/* Avatar with platform badge */}
               <div className="relative flex-shrink-0">
-                {conversation.contacts?.avatar_url ? (
-                  <img
-                    src={conversation.contacts.avatar_url}
-                    alt=""
-                    className="h-10 w-10 rounded-full object-cover"
-                  />
-                ) : (
-                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted text-sm font-medium">
-                    {conversation.contacts?.display_name?.[0]?.toUpperCase() ?? "?"}
-                  </div>
-                )}
+                <Avatar
+                  src={conversation.contacts?.avatar_url}
+                  name={conversation.contacts?.display_name}
+                  className="h-10 w-10 text-sm"
+                />
                 <div className="absolute -bottom-0.5 -right-0.5 flex h-4.5 w-4.5 items-center justify-center rounded-full border-2 border-background bg-background">
                   <PlatformIcon
                     platform={conversation.platform}
@@ -195,8 +190,13 @@ export function ConversationList({
               {/* Content */}
               <div className="min-w-0 flex-1">
                 <div className="flex items-center justify-between">
-                  <p className="truncate text-sm font-medium">
-                    {conversation.contacts?.display_name ?? "Unknown"}
+                  <p className="flex min-w-0 items-center gap-1.5 truncate text-sm font-medium">
+                    <span className="truncate">{conversation.contacts?.display_name ?? "Unknown"}</span>
+                    {(conversation as { source?: { kind?: string } | null }).source?.kind === "ad" && (
+                      <span className="flex-shrink-0 rounded bg-amber-100 px-1 py-px text-[9px] font-semibold uppercase tracking-wide text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
+                        Ad
+                      </span>
+                    )}
                   </p>
                   <span
                     suppressHydrationWarning
