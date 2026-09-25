@@ -15,6 +15,7 @@ import {
   Eye,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { PostPicker } from "@/components/flow-builder/panels/PostPicker";
 import { createClient } from "@/lib/supabase/client";
 import type { Database, Json } from "@/lib/types/database";
 import { PLATFORM_LABELS } from "@/lib/platforms";
@@ -455,22 +456,15 @@ export function GrowthView({
 
               {/* Post IDs (optional) */}
               <div className="sm:col-span-2">
-                <label className="text-xs font-medium text-muted-foreground">
-                  Specific Post IDs (optional, comma-separated)
-                </label>
-                <input
-                  type="text"
-                  value={form.postIds}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, postIds: e.target.value }))
+                <PostPicker
+                  value={form.postIds
+                    .split(",")
+                    .map((s) => s.trim())
+                    .filter(Boolean)}
+                  onChange={(ids) =>
+                    setForm((f) => ({ ...f, postIds: ids.join(", ") }))
                   }
-                  placeholder="Leave empty to match comments on all posts"
-                  className="mt-1.5 w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-primary"
                 />
-                <p className="mt-1 text-[11px] text-muted-foreground/60">
-                  Limit this rule to specific Zernio post IDs. If empty, all posts
-                  on this channel are monitored.
-                </p>
               </div>
             </div>
 
