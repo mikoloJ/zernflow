@@ -6,6 +6,7 @@ import { matchTrigger } from "@/lib/flow-engine/trigger-matcher";
 import { resolveWebhookSecret, verifyWebhookSignature } from "@/lib/zernio-webhook";
 import { upsertContactForSender } from "@/lib/inbox-sync";
 import { processComment } from "@/lib/comment-processor";
+import { handleAutomationButtonTap } from "@/lib/comment-automations";
 import type { Database } from "@/lib/types/database";
 import { messagePreview } from "@/lib/message-preview";
 
@@ -281,6 +282,19 @@ async function processMessageEvent(
       },
     };
 
+    // A tap on a comment automation's opening-DM button sends its link DM.
+    if (
+      await handleAutomationButtonTap({
+        supabase,
+        channel,
+        payload: metadata?.postbackPayload || metadata?.quickReplyPayload,
+        lateConversationId: conv.id,
+        sender: { name: msg.sender.name, username: msg.sender.username },
+      })
+    ) {
+      return;
+    }
+
     const handled = await handleGlobalKeywords(
       supabase,
       channel.workspace_id,
@@ -370,6 +384,7 @@ async function handleCommentWebhook(
           // back to the platform post id so flows still run. Zernio's private-reply
           // endpoint only needs the comment id, so the placeholder is harmless.
           postId: payload.comment.postId || payload.comment.platformPostId,
+          platformPostId: payload.comment.platformPostId,
           text: payload.comment.text,
           author: payload.comment.author,
         },
