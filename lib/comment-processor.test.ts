@@ -52,6 +52,22 @@ describe("matchCommentTrigger", () => {
     expect(matchCommentTrigger([t], comment("promo", "post-9"))?.id).toBe("t1");
   });
 
+  it("matches a selected post by its platform id as well as Zernio's id", () => {
+    const t = trigger("t1", { keywords: [{ value: "pt" }], postIds: ["17912345678"] });
+    const byPlatform: CommentForMatching = {
+      text: "PT",
+      postId: "zernio-post-abc",
+      platformPostId: "17912345678",
+    };
+    expect(matchCommentTrigger([t], byPlatform)?.id).toBe("t1");
+    const otherPost: CommentForMatching = {
+      text: "PT",
+      postId: "zernio-post-abc",
+      platformPostId: "17900000000",
+    };
+    expect(matchCommentTrigger([t], otherPost)).toBeNull();
+  });
+
   it("skips triggers without keywords and returns null when nothing matches", () => {
     const empty = trigger("t1", {});
     const other = trigger("t2", { keywords: [{ value: "xyz" }] });

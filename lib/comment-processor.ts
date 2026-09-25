@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, Json } from "@/lib/types/database";
 import { executeFlow } from "@/lib/flow-engine/engine";
 import { createZernioClient } from "@/lib/zernio-client";
+import { runCommentAutomations } from "@/lib/comment-automations";
 
 type Channel = Database["public"]["Tables"]["channels"]["Row"];
 type Trigger = Database["public"]["Tables"]["triggers"]["Row"];
@@ -9,11 +10,15 @@ type Trigger = Database["public"]["Tables"]["triggers"]["Row"];
 export interface IncomingComment {
   id: string;
   postId: string;
+  /** The platform's own post id (e.g. the Instagram media id), when known. */
+  platformPostId?: string | null;
   text: string;
   author: { id?: string; name?: string; username?: string };
 }
 
-export type CommentForMatching = Pick<IncomingComment, "postId"> & { text: string };
+export type CommentForMatching = Pick<IncomingComment, "postId" | "platformPostId"> & {
+  text: string;
+};
 
 interface CommentKeywordConfig {
   keywords?: Array<{
@@ -39,7 +44,15 @@ export function matchCommentTrigger(
   for (const trigger of triggers) {
     const config = trigger.config as unknown as CommentKeywordConfig;
     if (!config.keywords?.length) continue;
-    if (config.postIds?.length && !config.postIds.includes(comment.postId)) continue;
+    // A post can be known by Zernio's id (posts published through Zernio) or
+    // by the platform's id (posts made natively); the picker may store either.
+    if (
+      config.postIds?.length &&
+      !config.postIds.includes(comment.postId) &&
+      !(comment.platformPostId && config.postIds.includes(comment.platformPostId))
+    ) {
+      continue;
+    }
 
     for (const kw of config.keywords) {
       const keyword = kw.value.toLowerCase();
@@ -103,6 +116,23 @@ export async function processComment({
     .maybeSingle();
 
   if (alreadyLogged) return { matched: false, skipped: "already_processed" };
+
+  // Comment automations (the one-page comment -> DM setups) take precedence
+  // over flow-builder comment triggers.
+  const automationResult = await runCommentAutomations({ supabase, channel, comment });
+  if (automationResult) {
+    await logComment({
+      supabase,
+      channel,
+      comment,
+      triggerId: null,
+      automationId: automationResult.automationId,
+      dmSent: automationResult.dmSent,
+      replySent: automationResult.replySent,
+      error: automationResult.error,
+    });
+    return { matched: true, error: automationResult.error };
+  }
 
   const triggers = await getActiveCommentTriggers(supabase, {
     channelId: channel.id,
@@ -287,6 +317,7 @@ async function logComment({
   channel,
   comment,
   triggerId,
+  automationId = null,
   dmSent = false,
   replySent = false,
   error,
@@ -295,6 +326,7 @@ async function logComment({
   channel: Channel;
   comment: IncomingComment;
   triggerId: string | null;
+  automationId?: string | null;
   dmSent?: boolean;
   replySent?: boolean;
   error?: string;
@@ -310,6 +342,7 @@ async function logComment({
       author_username: comment.author.username || null,
       comment_text: comment.text,
       matched_trigger_id: triggerId,
+      matched_automation_id: automationId,
       dm_sent: dmSent,
       reply_sent: replySent,
       ...(error ? { error } : {}),
