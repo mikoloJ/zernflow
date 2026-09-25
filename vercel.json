@@ -1,12 +1,6 @@
 {
   "crons": [
-    {
-      "path": "/api/cron/jobs",
-      "schedule": "* * * * *"
-    },
-{
-      "path": "/api/cron/sequences",
-      "schedule": "* * * * *"
-    }
+    { "path": "/api/cron/jobs", "schedule": "0 0 * * *" },
+    { "path": "/api/cron/sequences", "schedule": "0 0 * * *" }
   ]
 }
