@@ -5,6 +5,7 @@
  */
 
 import type { Json } from "@/lib/types/database";
+import { interpolate } from "@/lib/comment-automation-config";
 
 export interface InboxButton {
   title: string;
@@ -235,4 +236,62 @@ export function enrichWithAutomations(messages: InboxMessage[], automations: Aut
 
 export function sortChronologically(messages: InboxMessage[]): InboxMessage[] {
   return [...messages].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+}
+
+export interface AutomationRun {
+  /** When the automation replied to the comment (comment_logs.created_at). */
+  at: string;
+  template: AutomationTemplate;
+  vars: Record<string, string>;
+}
+
+/** Outbound message Meta returned without its content (text-less card/template). */
+function isWithheld(m: InboxMessage) {
+  if (m.direction !== "outbound" || !m.extra || m.text?.trim() || m.extra.buttons.length) return false;
+  return m.extra.unsupported || (m.extra.attachments.length > 0 && m.extra.attachments.every((a) => a.type === "template" && !a.url));
+}
+
+/**
+ * Meta returns our comment-automation opening DM (a card with a button) as an
+ * empty "template". Rebuild it from the automation that ran for this contact
+ * at that moment.
+ */
+export function fillAutomationTemplates(messages: InboxMessage[], runs: AutomationRun[]): InboxMessage[] {
+  if (!runs.length) return messages;
+  const used = new Set<number>();
+  return messages.map((m) => {
+    if (!isWithheld(m)) return m;
+    const t = new Date(m.created_at).getTime();
+    let best = -1;
+    let bestGap = Infinity;
+    runs.forEach((r, i) => {
+      if (used.has(i)) return;
+      const gap = t - new Date(r.at).getTime();
+      // The DM goes out right after the comment is logged (allow clock skew).
+      if (gap >= -60_000 && gap <= 5 * 60_000 && Math.abs(gap) < bestGap) {
+        best = i;
+        bestGap = Math.abs(gap);
+      }
+    });
+    if (best === -1) return m;
+    used.add(best);
+    const { template: a, vars } = runs[best];
+    const opening = !!a.openingText;
+    return {
+      ...m,
+      text: interpolate(opening ? a.openingText! : a.linkText, vars),
+      extra: {
+        ...m.extra!,
+        attachments: m.extra!.attachments.filter((x) => x.type !== "template"),
+        buttons: opening
+          ? a.openingButton
+            ? [{ title: a.openingButton, type: "postback" as const }]
+            : []
+          : a.linkButtons.filter((b) => b.label && b.url).map((b) => ({ title: b.label, type: "url" as const, url: b.url })),
+        unsupported: false,
+        sentBy: "automation",
+        automationName: a.name,
+      },
+    };
+  });
 }

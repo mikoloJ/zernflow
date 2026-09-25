@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   enrichWithAutomations,
   enrichWithLocal,
+  fillAutomationTemplates,
   mapZernioMessage,
   sortChronologically,
   templateRegex,
@@ -97,5 +98,31 @@ describe("enrichment", () => {
   it("sorts oldest first", () => {
     const sorted = sortChronologically([out("b", "2", "2026-06-17T12:00:00Z"), out("a", "1", "2026-06-17T11:00:00Z")]);
     expect(sorted.map((m) => m.id)).toEqual(["a", "b"]);
+  });
+});
+
+describe("fillAutomationTemplates", () => {
+  const tpl = {
+    name: "PT launch",
+    openingText: "Hi {{first_name}}! PT starts soon",
+    openingButton: "I am ready!",
+    linkText: "Here you go",
+    linkButtons: [{ label: "Enrol", url: "https://irep.ng" }],
+  };
+  it("rebuilds the opening card Meta returns as an empty template", () => {
+    const m = mapZernioMessage(
+      { id: "1", message: "", direction: "outgoing", createdAt: "2026-09-25T13:12:58Z", attachments: [{ type: "template" }] },
+      "c1",
+    );
+    const [filled] = fillAutomationTemplates([m], [{ at: "2026-09-25T13:12:55Z", template: tpl, vars: { first_name: "Michael" } }]);
+    expect(filled.text).toBe("Hi Michael! PT starts soon");
+    expect(filled.extra?.buttons).toEqual([{ title: "I am ready!", type: "postback" }]);
+    expect(filled.extra?.attachments).toEqual([]);
+    expect(filled.extra?.sentBy).toBe("automation");
+  });
+  it("leaves messages alone when no automation ran nearby", () => {
+    const m = mapZernioMessage({ id: "1", message: "", direction: "outgoing", createdAt: "2026-09-25T15:00:00Z" }, "c1");
+    const [same] = fillAutomationTemplates([m], [{ at: "2026-09-25T13:12:55Z", template: tpl, vars: {} }]);
+    expect(same.extra?.unsupported).toBe(true);
   });
 });
