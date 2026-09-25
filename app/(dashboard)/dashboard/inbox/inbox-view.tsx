@@ -51,6 +51,25 @@ export function InboxView({
     }
   }
 
+  // Meta profile picture links expire: refresh them when the inbox opens
+  // (at most every 30 minutes), then re-render the list with the new faces.
+  useEffect(() => {
+    let last = 0;
+    try {
+      last = Number(sessionStorage.getItem("inbox-pictures-refreshed") ?? 0);
+    } catch {}
+    if (Date.now() - last < 30 * 60 * 1000) return;
+    fetch("/api/v1/conversations/refresh-pictures", { method: "POST" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        try {
+          sessionStorage.setItem("inbox-pictures-refreshed", String(Date.now()));
+        } catch {}
+        if (d?.updated > 0) router.refresh();
+      })
+      .catch(() => {});
+  }, [router]);
+
   // Keep selected conversation in sync when conversation list updates
   const handleSelect = useCallback((c: Conversation) => {
     setSelected(c);
