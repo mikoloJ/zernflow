@@ -905,6 +905,54 @@ export interface Database {
           },
         ];
       };
+      comment_automations: {
+        Row: {
+          id: string;
+          workspace_id: string;
+          channel_id: string | null;
+          name: string;
+          is_active: boolean;
+          config: Json;
+          comments_matched: number;
+          replies_posted: number;
+          opening_dms_sent: number;
+          button_taps: number;
+          link_dms_sent: number;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          workspace_id: string;
+          channel_id?: string | null;
+          name?: string;
+          is_active?: boolean;
+          config?: Json;
+          comments_matched?: number;
+          replies_posted?: number;
+          opening_dms_sent?: number;
+          button_taps?: number;
+          link_dms_sent?: number;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          workspace_id?: string;
+          channel_id?: string | null;
+          name?: string;
+          is_active?: boolean;
+          config?: Json;
+          comments_matched?: number;
+          replies_posted?: number;
+          opening_dms_sent?: number;
+          button_taps?: number;
+          link_dms_sent?: number;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       comment_logs: {
         Row: {
           id: string;
@@ -917,6 +965,7 @@ export interface Database {
           author_username: string | null;
           comment_text: string;
           matched_trigger_id: string | null;
+          matched_automation_id: string | null;
           dm_sent: boolean;
           reply_sent: boolean;
           error: string | null;
@@ -933,6 +982,7 @@ export interface Database {
           author_username?: string | null;
           comment_text: string;
           matched_trigger_id?: string | null;
+          matched_automation_id?: string | null;
           dm_sent?: boolean;
           reply_sent?: boolean;
           error?: string | null;
@@ -940,6 +990,7 @@ export interface Database {
         };
         Update: {
           matched_trigger_id?: string | null;
+          matched_automation_id?: string | null;
           dm_sent?: boolean;
           reply_sent?: boolean;
           error?: string | null;
@@ -1078,6 +1129,13 @@ export interface Database {
       [_ in never]: never;
     };
     Functions: {
+      bump_comment_automation_stat: {
+        Args: {
+          automation_id: string;
+          stat: string;
+        };
+        Returns: undefined;
+      };
       increment_unread: {
         Args: {
           conv_id: string;
