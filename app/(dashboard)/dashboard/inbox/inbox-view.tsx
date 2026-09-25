@@ -9,11 +9,12 @@ import { ContactPanel } from "@/components/inbox/contact-panel";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 import type { Database } from "@/lib/types/database";
+import type { InboxMessage } from "@/lib/inbox-messages";
 
 type Conversation = Database["public"]["Tables"]["conversations"]["Row"] & {
   contacts: Database["public"]["Tables"]["contacts"]["Row"] | null;
 };
-type Message = Database["public"]["Tables"]["messages"]["Row"];
+type Message = InboxMessage;
 
 export function InboxView({
   conversations,
