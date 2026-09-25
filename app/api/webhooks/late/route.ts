@@ -52,6 +52,23 @@ interface WebhookPayload {
     callbackData?: string;
     postbackPayload?: string;
     postbackTitle?: string;
+    /** Meta ad-click attribution; only on the first message after the click. */
+    referral?: {
+      ad_id?: string;
+      source?: string;
+      type?: string;
+      ref?: string;
+      ctwa_clid?: string;
+      source_id?: string;
+      source_type?: string;
+      source_url?: string;
+      headline?: string;
+      body?: string;
+      image_url?: string;
+      video_url?: string;
+      thumbnail_url?: string;
+      ads_context_data?: { ad_title?: string; photo_url?: string; video_url?: string; post_id?: string };
+    } | null;
   };
   timestamp: string;
 }
@@ -254,6 +271,31 @@ async function processMessageEvent(
   if (!conversation) {
     console.error("Failed to upsert conversation for webhook message");
     return;
+  }
+
+  // Remember which ad (or post) started this chat, for the inbox badge.
+  const referral = metadata?.referral;
+  if (referral && (referral.ad_id || referral.source_id || referral.ctwa_clid || referral.source_url)) {
+    const ctx = referral.ads_context_data ?? {};
+    await supabase
+      .from("conversations")
+      .update({
+        source: {
+          kind: "ad",
+          adId: referral.ad_id ?? referral.source_id ?? null,
+          title: ctx.ad_title ?? referral.headline ?? null,
+          body: referral.body ?? null,
+          photoUrl: ctx.photo_url ?? referral.image_url ?? referral.thumbnail_url ?? null,
+          videoUrl: ctx.video_url ?? referral.video_url ?? null,
+          postId: ctx.post_id ?? null,
+          sourceUrl: referral.source_url ?? null,
+          sourceType: referral.source_type ?? referral.source ?? null,
+          ref: referral.ref ?? null,
+          capturedAt: new Date().toISOString(),
+        },
+      })
+      .eq("id", conversation.id)
+      .is("source", null);
   }
 
   if (contact.existed) {
