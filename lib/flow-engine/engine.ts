@@ -533,12 +533,20 @@ async function executeSendMessage(
         body: body as Parameters<typeof zernio.messages.sendInboxMessage>[0]["body"],
       });
 
-      // Store outbound message
+      // Store outbound message (with any buttons/quick replies, so the inbox
+      // can render the message exactly as the contact saw it).
+      const richParts: Array<Record<string, unknown>> = [...(attachments ?? [])];
+      if (adapted.buttons?.length) {
+        richParts.push({ type: "buttons", buttons: adapted.buttons.map((b) => ({ title: b.title, type: b.type, url: b.url })) });
+      }
+      if (adapted.quickReplies?.length) {
+        richParts.push({ type: "quick_replies", items: adapted.quickReplies.map((q) => ({ title: q.title })) });
+      }
       await supabase.from("messages").insert({
         conversation_id: context.conversationId,
         direction: "outbound",
         text,
-        attachments: attachments || null,
+        attachments: (richParts.length ? richParts : null) as Json,
         sent_by_flow_id: context.flowId,
         sent_by_node_id: null,
         platform_message_id: response.data?.data?.messageId || null,
