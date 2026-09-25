@@ -1106,3 +1106,41 @@ revoke execute on function bump_comment_automation_stat(uuid, text) from public,
 -- Which automation handled a comment (for the activity log).
 alter table comment_logs
   add column if not exists matched_automation_id uuid references comment_automations(id) on delete set null;
+
+-- ============================================================
+-- MIGRATION 18: INBOX SOURCE AND MEDIA
+-- ============================================================
+-- =============================================
+-- Inbox: where a conversation came from (ad click attribution), and a
+-- public storage bucket for images/files sent from the inbox composer.
+-- =============================================
+
+-- Ad-click attribution captured from the first inbound message's referral
+-- (Instagram Click-to-Direct, Messenger Click-to-Message, Click-to-WhatsApp).
+alter table conversations
+  add column if not exists source jsonb;
+
+-- Media sent from the inbox must be at a public URL for Meta to fetch it.
+insert into storage.buckets (id, name, public)
+values ('inbox-media', 'inbox-media', true)
+on conflict (id) do nothing;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_policies
+    where schemaname = 'storage' and tablename = 'objects' and policyname = 'Members can upload inbox media'
+  ) then
+    create policy "Members can upload inbox media"
+      on storage.objects for insert to authenticated
+      with check (bucket_id = 'inbox-media');
+  end if;
+  if not exists (
+    select 1 from pg_policies
+    where schemaname = 'storage' and tablename = 'objects' and policyname = 'Anyone can read inbox media'
+  ) then
+    create policy "Anyone can read inbox media"
+      on storage.objects for select
+      using (bucket_id = 'inbox-media');
+  end if;
+end $$;
