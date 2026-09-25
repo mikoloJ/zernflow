@@ -72,6 +72,11 @@ export async function GET(request: NextRequest) {
 
     let messages = raw.map((m) => mapZernioMessage(m, conversationId));
 
+    // ?debug=1 shows what the platform returned for messages we can't render.
+    if (request.nextUrl.searchParams.get("debug") === "1") {
+      return NextResponse.json(raw.filter((_, i) => messages[i].extra?.unsupported).slice(0, 5));
+    }
+
     const [{ data: local }, { data: automations }] = await Promise.all([
       supabase
         .from("messages")
