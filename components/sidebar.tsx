@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSyncExternalStore } from "react";
 import {
+  MessageCircleReply,
   GitBranch,
   MessageSquare,
   Users,
@@ -39,6 +40,7 @@ function subscribeToThemeClass(callback: () => void) {
 }
 
 const navigation = [
+  { name: "Automations", href: "/dashboard/automations", icon: MessageCircleReply },
   { name: "Flows", href: "/dashboard/flows", icon: GitBranch },
   { name: "Inbox", href: "/dashboard/inbox", icon: MessageSquare },
   { name: "Contacts", href: "/dashboard/contacts", icon: Users },
