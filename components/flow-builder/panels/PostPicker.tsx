@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Check, ExternalLink, Loader2, MessageCircle, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-interface PickerPost {
+export interface PickerPost {
   id: string;
   platform: string;
   channelId: string;
@@ -19,7 +19,11 @@ interface PickerPost {
 interface PostPickerProps {
   /** Selected post IDs. Empty means "all posts". */
   value: string[];
-  onChange: (postIds: string[]) => void;
+  onChange: (postIds: string[], selectedPosts: PickerPost[]) => void;
+  /** Only show posts from this channel. */
+  channelId?: string;
+  /** Skip the All/Specific toggle and always show the grid. */
+  gridOnly?: boolean;
 }
 
 function formatDate(iso: string | null) {
@@ -32,8 +36,10 @@ function formatDate(iso: string | null) {
  * Lets the user scope a comment trigger to all posts or to specific posts,
  * chosen visually from their recent Instagram/Facebook posts.
  */
-export function PostPicker({ value, onChange }: PostPickerProps) {
-  const [mode, setMode] = useState<"all" | "specific">(value.length ? "specific" : "all");
+export function PostPicker({ value, onChange, channelId, gridOnly }: PostPickerProps) {
+  const [mode, setMode] = useState<"all" | "specific">(
+    gridOnly || value.length ? "specific" : "all",
+  );
   const [posts, setPosts] = useState<PickerPost[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -60,20 +66,27 @@ export function PostPicker({ value, onChange }: PostPickerProps) {
     if (mode === "specific" && posts === null && !loading) load();
   }, [mode, posts, loading, load]);
 
+  const visible = (posts ?? []).filter((p) => !channelId || p.channelId === channelId);
+
+  const emit = (ids: string[]) =>
+    onChange(ids, visible.filter((p) => ids.includes(p.id)));
+
   const toggle = (id: string) => {
-    onChange(value.includes(id) ? value.filter((v) => v !== id) : [...value, id]);
+    emit(value.includes(id) ? value.filter((v) => v !== id) : [...value, id]);
   };
 
   const selectMode = (next: "all" | "specific") => {
     setMode(next);
-    if (next === "all") onChange([]);
+    if (next === "all") emit([]);
   };
 
-  const knownIds = new Set((posts ?? []).map((p) => p.id));
+  const knownIds = new Set(visible.map((p) => p.id));
   const hiddenSelected = value.filter((id) => !knownIds.has(id));
 
   return (
     <div>
+      {!gridOnly && (
+      <>
       <label className="mb-2 block text-xs font-semibold text-foreground">
         Which posts?
       </label>
@@ -101,9 +114,11 @@ export function PostPicker({ value, onChange }: PostPickerProps) {
           Runs on comments on every post and reel, including future ones.
         </p>
       )}
+      </>
+      )}
 
       {mode === "specific" && (
-        <div className="mt-3">
+        <div className={gridOnly ? "" : "mt-3"}>
           <div className="mb-2 flex items-center justify-between">
             <p className="text-xs text-muted-foreground">
               {value.length
@@ -133,15 +148,15 @@ export function PostPicker({ value, onChange }: PostPickerProps) {
             </div>
           )}
 
-          {posts !== null && posts.length === 0 && !loading && (
+          {posts !== null && visible.length === 0 && !loading && (
             <p className="py-6 text-center text-xs text-muted-foreground">
               No posts found. Connect an Instagram or Facebook account in Settings.
             </p>
           )}
 
-          {posts !== null && posts.length > 0 && (
+          {posts !== null && visible.length > 0 && (
             <div className="grid max-h-80 grid-cols-3 gap-1.5 overflow-y-auto pr-1">
-              {posts.map((post) => {
+              {visible.map((post) => {
                 const selected = value.includes(post.id);
                 return (
                   <button
@@ -206,7 +221,7 @@ export function PostPicker({ value, onChange }: PostPickerProps) {
               {hiddenSelected.length === 1 ? "" : "s"} not shown.{" "}
               <button
                 type="button"
-                onClick={() => onChange(value.filter((id) => knownIds.has(id)))}
+                onClick={() => emit(value.filter((id) => knownIds.has(id)))}
                 className="underline hover:text-foreground"
               >
                 Remove
@@ -214,7 +229,7 @@ export function PostPicker({ value, onChange }: PostPickerProps) {
             </p>
           )}
 
-          {mode === "specific" && value.length === 0 && posts !== null && posts.length > 0 && (
+          {!gridOnly && mode === "specific" && value.length === 0 && posts !== null && visible.length > 0 && (
             <p className="mt-2 text-xs text-amber-700">
               Nothing selected yet, so this still runs on all posts.
             </p>

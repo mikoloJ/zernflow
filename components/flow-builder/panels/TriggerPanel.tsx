@@ -4,6 +4,7 @@ import { useCallback, useState } from "react";
 import { Plus, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { TriggerType } from "@/lib/types/database";
+import { PostPicker } from "./PostPicker";
 
 interface Keyword {
   value: string;
@@ -227,6 +228,32 @@ export function TriggerPanel({ data: rawData, onChange }: TriggerPanelProps) {
             </label>
           )}
         </div>
+      )}
+
+      {/* Comment keywords: post targeting + optional public reply */}
+      {triggerType === "comment_keyword" && (
+        <>
+          <PostPicker
+            value={Array.isArray(data.postIds) ? (data.postIds as string[]) : []}
+            onChange={(postIds) => onChange({ ...data, postIds })}
+          />
+
+          <div>
+            <label className="mb-2 block text-xs font-semibold text-foreground">
+              Public reply under the comment (optional)
+            </label>
+            <input
+              type="text"
+              value={typeof data.replyText === "string" ? data.replyText : ""}
+              onChange={(e) => onChange({ ...data, replyText: e.target.value })}
+              placeholder="Sent! Check your DMs 📩"
+              className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/60 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+            />
+            <p className="mt-1.5 text-xs text-muted-foreground">
+              Posted publicly under their comment so others see it works. Leave empty to skip.
+            </p>
+          </div>
+        </>
       )}
 
       {/* Payload Section */}
