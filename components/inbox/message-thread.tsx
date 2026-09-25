@@ -84,7 +84,14 @@ function formatCount(n: number) {
 
 function Attachment({ a, outbound }: { a: InboxAttachment; outbound: boolean }) {
   const src = a.url ?? a.previewUrl ?? undefined;
-  if (!src) return null;
+  if (!src) {
+    return (
+      <span className="inline-block rounded-xl bg-muted px-3 py-2 text-xs text-muted-foreground">
+        {a.type === "image" ? "📷 Photo" : a.type === "video" ? "🎬 Video" : a.type === "audio" ? "🎤 Voice message" : a.type === "share" ? "🔗 Shared post" : "📎 Attachment"}
+        {" "}(not available)
+      </span>
+    );
+  }
   if (a.type === "image" || a.type === "sticker") {
     return (
       <a href={src} target="_blank" rel="noreferrer" className="block">
@@ -198,7 +205,7 @@ function MessageBubble({
           <Attachment key={i} a={a} outbound={!inbound} />
         ))}
 
-        {(hasText || buttons.length > 0 || x?.isDeleted) && (
+        {(hasText || buttons.length > 0 || x?.isDeleted || x?.unsupported) && (
           <div
             className={cn(
               "overflow-hidden rounded-3xl text-sm",
@@ -210,6 +217,13 @@ function MessageBubble({
           >
             {x?.isDeleted ? (
               <p className="px-4 py-2 italic opacity-70">Message unsent</p>
+            ) : x?.unsupported ? (
+              <p
+                className="px-4 py-2 italic opacity-80"
+                title="Instagram/Facebook doesn't share the content of this message (usually a card or button message sent by another tool, such as ManyChat)."
+              >
+                Content not available from Meta
+              </p>
             ) : (
               hasText && <p className="whitespace-pre-wrap break-words px-4 py-2">{message.text}</p>
             )}

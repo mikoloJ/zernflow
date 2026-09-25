@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 
 /** Profile picture with an initials fallback (Meta picture URLs expire). */
@@ -14,6 +14,8 @@ export function Avatar({
   className?: string;
 }) {
   const [failed, setFailed] = useState(false);
+  // A fresh picture URL (Meta links expire) deserves a new attempt.
+  useEffect(() => setFailed(false), [src]);
   const initial = (name ?? "?").trim().replace(/^@/, "").charAt(0).toUpperCase() || "?";
 
   if (src && !failed) {
