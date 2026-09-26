@@ -13,6 +13,7 @@ import {
   ArrowLeft,
   Search,
   FilePlus,
+  Mail,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
@@ -229,7 +230,7 @@ const templates: FlowTemplate[] = [
         data: {
           label: "Save name",
           fieldSlug: "name",
-          value: "{{last_message}}",
+          value: "{{message}}",
         },
       },
       {
@@ -258,7 +259,7 @@ const templates: FlowTemplate[] = [
         data: {
           label: "Save email",
           fieldSlug: "email",
-          value: "{{last_message}}",
+          value: "{{message}}",
         },
       },
       {
@@ -279,6 +280,107 @@ const templates: FlowTemplate[] = [
       { id: "e5", source: "msg-email", target: "wait-email" },
       { id: "e6", source: "wait-email", target: "set-email" },
       { id: "e7", source: "set-email", target: "tag-lead" },
+    ],
+  },
+  {
+    id: "email-capture",
+    name: "Email Capture",
+    description:
+      "Ask for an email address, validate the reply looks like one, save it, and politely re-ask if it doesn't.",
+    category: "Marketing",
+    icon: Mail,
+    iconColor: "text-purple-600",
+    iconBg: "bg-purple-100",
+    nodes: [
+      {
+        id: "trigger-1",
+        type: "trigger",
+        position: { x: 250, y: 0 },
+        data: {
+          label: "Email Capture Trigger",
+          triggerType: "keyword",
+          config: { keywords: ["email", "newsletter", "subscribe"] },
+        },
+      },
+      {
+        id: "msg-ask",
+        type: "sendMessage",
+        position: { x: 250, y: 120 },
+        data: {
+          label: "Ask for email",
+          messages: [{ text: "What's the best email address to reach you at?" }],
+        },
+      },
+      {
+        id: "wait-email",
+        type: "smartDelay",
+        position: { x: 250, y: 240 },
+        data: {
+          label: "Wait for reply",
+          waitForInput: true,
+          timeout: 300,
+        },
+      },
+      {
+        id: "check-email",
+        type: "condition",
+        position: { x: 250, y: 360 },
+        data: {
+          label: "Looks like an email?",
+          logic: "and",
+          conditions: [
+            { id: "c1", field: "variable:message", operator: "contains", value: "@" },
+            { id: "c2", field: "variable:message", operator: "contains", value: "." },
+          ],
+        },
+      },
+      {
+        id: "set-email",
+        type: "setCustomField",
+        position: { x: 80, y: 500 },
+        data: {
+          label: "Save email",
+          fieldSlug: "email",
+          value: "{{message}}",
+        },
+      },
+      {
+        id: "msg-thanks",
+        type: "sendMessage",
+        position: { x: 80, y: 620 },
+        data: {
+          label: "Confirm",
+          messages: [{ text: "Perfect, got it. Thanks!" }],
+        },
+      },
+      {
+        id: "tag-subscriber",
+        type: "addTag",
+        position: { x: 80, y: 740 },
+        data: {
+          label: 'Add "email-captured" tag',
+          tagName: "email-captured",
+        },
+      },
+      {
+        id: "msg-retry",
+        type: "sendMessage",
+        position: { x: 450, y: 500 },
+        data: {
+          label: "Ask again",
+          messages: [{ text: "Hmm, that doesn't look like a valid email — mind trying again?" }],
+        },
+      },
+    ],
+    edges: [
+      { id: "e1", source: "trigger-1", target: "msg-ask" },
+      { id: "e2", source: "msg-ask", target: "wait-email" },
+      { id: "e3", source: "wait-email", target: "check-email" },
+      { id: "e4", source: "check-email", target: "set-email", sourceHandle: "true" },
+      { id: "e5", source: "set-email", target: "msg-thanks" },
+      { id: "e6", source: "msg-thanks", target: "tag-subscriber" },
+      { id: "e7", source: "check-email", target: "msg-retry", sourceHandle: "false" },
+      { id: "e8", source: "msg-retry", target: "wait-email" },
     ],
   },
 ];
