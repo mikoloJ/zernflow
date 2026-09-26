@@ -4,7 +4,7 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { executeFlow } from "@/lib/flow-engine/engine";
 import { matchTrigger } from "@/lib/flow-engine/trigger-matcher";
 import { resolveWebhookSecret, verifyWebhookSignature } from "@/lib/zernio-webhook";
-import { upsertContactForSender } from "@/lib/inbox-sync";
+import { upsertContactForSender, assignConversationRoundRobin } from "@/lib/inbox-sync";
 import { processComment } from "@/lib/comment-processor";
 import { handleAutomationButtonTap } from "@/lib/comment-automations";
 import type { Database } from "@/lib/types/database";
@@ -271,6 +271,18 @@ async function processMessageEvent(
   if (!conversation) {
     console.error("Failed to upsert conversation for webhook message");
     return;
+  }
+
+  // The (channel_id, contact_id) upsert above only ever creates a row the
+  // first time this contact messages this channel, so a brand-new contact
+  // means a brand-new conversation — the right (and only) moment to run
+  // round-robin auto-assignment.
+  if (!contact.existed) {
+    await assignConversationRoundRobin({
+      supabase,
+      workspaceId: channel.workspace_id,
+      conversationId: conversation.id,
+    });
   }
 
   // Remember which ad (or post) started this chat, for the inbox badge.
