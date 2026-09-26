@@ -38,6 +38,7 @@ export default async function SequenceDetailPage({
           description: sequence.description,
           status: sequence.status as "draft" | "active" | "paused",
           steps: (sequence.steps as unknown as SequenceStep[]) || [],
+          stopOnReply: sequence.stop_on_reply,
         }}
       />
       <div className="border-t border-border">
