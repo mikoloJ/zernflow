@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Sparkles,
@@ -11,6 +11,8 @@ import {
   Loader2,
   BookmarkPlus,
   ArrowLeft,
+  Search,
+  FilePlus,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
@@ -278,23 +280,34 @@ const templates: FlowTemplate[] = [
 export function TemplatesView({ workspaceId }: { workspaceId: string }) {
   const router = useRouter();
   const [creating, setCreating] = useState<string | null>(null);
+  const [category, setCategory] = useState("All");
+  const [search, setSearch] = useState("");
   const pendingRef = useRef(false);
 
-  async function handleUseTemplate(template: FlowTemplate) {
+  const categories = useMemo(() => {
+    const set = new Set(templates.map((t) => t.category));
+    return ["All", ...Array.from(set)];
+  }, []);
+
+  const visibleTemplates = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return templates.filter((t) => {
+      if (category !== "All" && t.category !== category) return false;
+      if (!q) return true;
+      return t.name.toLowerCase().includes(q) || t.description.toLowerCase().includes(q);
+    });
+  }, [category, search]);
+
+  async function createFlow(payload: { name: string; description?: string; nodes: TemplateNode[]; edges: TemplateEdge[] }, id: string) {
     if (pendingRef.current) return;
     pendingRef.current = true;
-    setCreating(template.id);
+    setCreating(id);
 
     try {
       const res = await fetch("/api/v1/flows", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: template.name,
-          description: template.description,
-          nodes: template.nodes,
-          edges: template.edges,
-        }),
+        body: JSON.stringify(payload),
       });
 
       if (!res.ok) {
@@ -304,10 +317,26 @@ export function TemplatesView({ workspaceId }: { workspaceId: string }) {
       const flow = await res.json();
       router.push(`/dashboard/flows/${flow.id}`);
     } catch (err) {
-      console.error("Failed to create flow from template:", err);
+      console.error("Failed to create flow:", err);
       pendingRef.current = false;
       setCreating(null);
     }
+  }
+
+  async function handleUseTemplate(template: FlowTemplate) {
+    await createFlow(
+      {
+        name: template.name,
+        description: template.description,
+        nodes: template.nodes,
+        edges: template.edges,
+      },
+      template.id,
+    );
+  }
+
+  async function handleStartFromScratch() {
+    await createFlow({ name: "Untitled Flow", nodes: [], edges: [] }, "__scratch__");
   }
 
   return (
@@ -341,10 +370,75 @@ export function TemplatesView({ workspaceId }: { workspaceId: string }) {
         </div>
       </div>
 
+      {/* Filters */}
+      <div className="flex flex-wrap items-center gap-3 border-b border-border px-8 py-4">
+        <div className="flex flex-wrap items-center gap-1.5">
+          {categories.map((c) => (
+            <button
+              key={c}
+              onClick={() => setCategory(c)}
+              className={cn(
+                "rounded-full px-3 py-1 text-xs font-medium transition-colors",
+                category === c
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-muted text-muted-foreground hover:bg-accent",
+              )}
+            >
+              {c}
+            </button>
+          ))}
+        </div>
+        <div className="relative ml-auto w-full max-w-xs sm:w-64">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search templates..."
+            className="w-full rounded-lg border border-border bg-background px-8 py-1.5 text-sm"
+          />
+        </div>
+      </div>
+
       {/* Template gallery */}
       <div className="flex-1 overflow-auto p-8">
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-          {templates.map((template) => {
+          {/* Start from scratch */}
+          <button
+            onClick={handleStartFromScratch}
+            disabled={!!creating}
+            className="group flex flex-col items-start rounded-xl border border-dashed border-border bg-card p-6 text-left transition-colors hover:border-primary/50 disabled:opacity-50"
+          >
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted">
+              <FilePlus className="h-5 w-5 text-muted-foreground" />
+            </div>
+            <h3 className="mt-4 text-sm font-semibold group-hover:text-primary transition-colors">
+              Start from scratch
+            </h3>
+            <p className="mt-2 text-xs text-muted-foreground leading-relaxed">
+              Open a blank flow builder and design your own automation from the ground up.
+            </p>
+            <span className="mt-4 inline-flex items-center gap-2 text-xs font-medium text-primary">
+              {creating === "__scratch__" ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Creating...
+                </>
+              ) : (
+                <>
+                  <GitBranch className="h-3.5 w-3.5" />
+                  Blank flow
+                </>
+              )}
+            </span>
+          </button>
+
+          {visibleTemplates.length === 0 && (
+            <div className="col-span-full rounded-xl border border-dashed border-border p-10 text-center text-sm text-muted-foreground">
+              No templates match your search.
+            </div>
+          )}
+
+          {visibleTemplates.map((template) => {
             const isCreating = creating === template.id;
             const Icon = template.icon;
             const nodeCount = template.nodes.length;
