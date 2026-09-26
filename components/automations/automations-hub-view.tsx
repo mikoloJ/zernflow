@@ -14,6 +14,7 @@ import {
   Loader2,
   Pencil,
   Trash2,
+  Zap,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
@@ -353,6 +354,14 @@ export function AutomationsHubView({
                     >
                       <Sparkles className="h-4 w-4 text-muted-foreground" />
                       Browse templates
+                    </Link>
+                    <Link
+                      href="/dashboard/automations/basic"
+                      className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm hover:bg-accent"
+                      onClick={() => setNewAutomationOpen(false)}
+                    >
+                      <Zap className="h-4 w-4 text-muted-foreground" />
+                      Basic automations
                     </Link>
                     <button
                       onClick={handleCreateFlow}
