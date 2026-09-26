@@ -28,6 +28,7 @@ function automation(
     opening_dms_sent: 0,
     button_taps: 0,
     link_dms_sent: 0,
+    folder_id: null,
     created_at: "2026-09-25T10:00:00Z",
     updated_at: "2026-09-25T10:00:00Z",
     ...extra,
