@@ -1097,6 +1097,7 @@ export interface Database {
           description: string | null;
           status: SequenceStatus;
           steps: Json;
+          stop_on_reply: boolean;
           created_at: string;
           updated_at: string;
         };
@@ -1107,6 +1108,7 @@ export interface Database {
           description?: string | null;
           status?: SequenceStatus;
           steps?: Json;
+          stop_on_reply?: boolean;
           created_at?: string;
           updated_at?: string;
         };
@@ -1115,6 +1117,7 @@ export interface Database {
           description?: string | null;
           status?: SequenceStatus;
           steps?: Json;
+          stop_on_reply?: boolean;
           updated_at?: string;
         };
         Relationships: [
