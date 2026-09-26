@@ -10,6 +10,7 @@ import {
   Loader2,
   AlertCircle,
   CheckCircle2,
+  MessageCircleOff,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -24,6 +25,7 @@ interface SequenceEditorProps {
     description: string | null;
     status: "draft" | "active" | "paused";
     steps: SequenceStep[];
+    stopOnReply: boolean;
   };
 }
 
@@ -50,6 +52,7 @@ export function SequenceEditor({ sequence }: SequenceEditorProps) {
   const [description, setDescription] = useState(sequence.description || "");
   const [steps, setSteps] = useState<SequenceStep[]>(sequence.steps);
   const [status, setStatus] = useState(sequence.status);
+  const [stopOnReply, setStopOnReply] = useState(sequence.stopOnReply);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -68,6 +71,7 @@ export function SequenceEditor({ sequence }: SequenceEditorProps) {
       description: description.trim() || null,
       steps,
       status,
+      stopOnReply,
     });
 
     if (result.error) {
@@ -77,7 +81,7 @@ export function SequenceEditor({ sequence }: SequenceEditorProps) {
       setTimeout(() => setSuccess(null), 2000);
     }
     setSaving(false);
-  }, [sequence.id, name, description, steps, status]);
+  }, [sequence.id, name, description, steps, status, stopOnReply]);
 
   const handleDelete = useCallback(async () => {
     setDeleting(true);
@@ -224,6 +228,27 @@ export function SequenceEditor({ sequence }: SequenceEditorProps) {
               className="w-full rounded-lg border border-input bg-background px-4 py-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
             />
           </div>
+
+          {/* Stop on reply */}
+          <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-card p-4">
+            <input
+              type="checkbox"
+              checked={stopOnReply}
+              onChange={(e) => setStopOnReply(e.target.checked)}
+              className="mt-0.5 h-4 w-4 rounded border-input"
+            />
+            <div>
+              <p className="flex items-center gap-1.5 text-sm font-medium">
+                <MessageCircleOff className="h-3.5 w-3.5 text-muted-foreground" />
+                Stop if the contact replies
+              </p>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                As soon as they send a message back, the rest of this drip is skipped instead of
+                still going out. Turn this off for sequences that should keep going regardless
+                (announcements, broadcasts).
+              </p>
+            </div>
+          </label>
 
           {/* Messages */}
           {error && (
