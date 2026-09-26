@@ -108,6 +108,57 @@ export async function upsertContactForSender({
 }
 
 /**
+ * Assigns a brand-new conversation to the next workspace member in round
+ * robin order, when the workspace has `auto_assign_conversations` on.
+ *
+ * Only ever call this for a conversation that was just created (never on an
+ * update to an existing one) — it has no idea whether `conversationId`
+ * already has an assignee, so calling it on every message would keep
+ * reassigning the same conversation.
+ */
+export async function assignConversationRoundRobin({
+  supabase,
+  workspaceId,
+  conversationId,
+}: {
+  supabase: SupabaseClient;
+  workspaceId: string;
+  conversationId: string;
+}): Promise<string | null> {
+  const { data: workspace } = await supabase
+    .from("workspaces")
+    .select("auto_assign_conversations, last_assigned_member_id")
+    .eq("id", workspaceId)
+    .single();
+
+  if (!workspace?.auto_assign_conversations) return null;
+
+  const { data: members } = await supabase
+    .from("workspace_members")
+    .select("user_id")
+    .eq("workspace_id", workspaceId)
+    .order("user_id");
+
+  if (!members || members.length === 0) return null;
+
+  const lastId = workspace.last_assigned_member_id as string | null;
+  const lastIndex = lastId ? members.findIndex((m) => m.user_id === lastId) : -1;
+  const next = members[(lastIndex + 1) % members.length].user_id;
+
+  const [{ error: assignErr }] = await Promise.all([
+    supabase.from("conversations").update({ assigned_to: next }).eq("id", conversationId),
+    supabase.from("workspaces").update({ last_assigned_member_id: next }).eq("id", workspaceId),
+  ]);
+
+  if (assignErr) {
+    console.error("[assignConversationRoundRobin] failed to assign conversation:", assignErr);
+    return null;
+  }
+
+  return next;
+}
+
+/**
  * Imports Zernio inbox conversations missing from the local `conversations`
  * table. Insert-only: conversations already known (by late_conversation_id)
  * are skipped, and a contact whose (channel_id, contact_id) row already exists

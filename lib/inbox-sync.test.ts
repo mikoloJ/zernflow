@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Zernio } from "./zernio-client";
-import { backfillInboxConversations } from "./inbox-sync";
+import { backfillInboxConversations, assignConversationRoundRobin } from "./inbox-sync";
 
 interface CapturedRow {
   table: string;
@@ -379,5 +379,118 @@ describe("backfillInboxConversations", () => {
 
     expect(res.imported).toBe(1);
     expect(fake.upserts[0].row).toMatchObject({ channel_id: "ch-1" });
+  });
+});
+
+describe("assignConversationRoundRobin", () => {
+  /** Minimal fake covering the workspaces/workspace_members/conversations calls this makes. */
+  function makeFake(seed: {
+    autoAssign: boolean;
+    lastAssignedMemberId: string | null;
+    memberIds: string[];
+  }) {
+    const updates: Array<{ table: string; row: Record<string, unknown>; id: unknown }> = [];
+    const client = {
+      from(table: string) {
+        let id: unknown;
+        const builder = {
+          select() {
+            return builder;
+          },
+          eq(col: string, val: unknown) {
+            if (col === "id" || col === "workspace_id") id = val;
+            return builder;
+          },
+          order() {
+            return builder;
+          },
+          single() {
+            if (table === "workspaces") {
+              return Promise.resolve({
+                data: {
+                  auto_assign_conversations: seed.autoAssign,
+                  last_assigned_member_id: seed.lastAssignedMemberId,
+                },
+                error: null,
+              });
+            }
+            return Promise.resolve({ data: null, error: null });
+          },
+          update(row: Record<string, unknown>) {
+            return {
+              eq(_col: string, val: unknown) {
+                updates.push({ table, row, id: val });
+                return Promise.resolve({ error: null });
+              },
+            };
+          },
+          then(resolve: (v: { data: unknown; error: null }) => unknown) {
+            const data =
+              table === "workspace_members" ? seed.memberIds.map((user_id) => ({ user_id })) : [];
+            return Promise.resolve(resolve({ data, error: null }));
+          },
+        };
+        return builder;
+      },
+    } as unknown as SupabaseClient;
+
+    return { client, updates };
+  }
+
+  it("does nothing when the workspace has auto-assign off", async () => {
+    const fake = makeFake({ autoAssign: false, lastAssignedMemberId: null, memberIds: ["u1", "u2"] });
+    const result = await assignConversationRoundRobin({
+      supabase: fake.client,
+      workspaceId: "ws-1",
+      conversationId: "conv-1",
+    });
+    expect(result).toBeNull();
+    expect(fake.updates).toHaveLength(0);
+  });
+
+  it("assigns the first member when nobody has been assigned yet", async () => {
+    const fake = makeFake({ autoAssign: true, lastAssignedMemberId: null, memberIds: ["u1", "u2"] });
+    const result = await assignConversationRoundRobin({
+      supabase: fake.client,
+      workspaceId: "ws-1",
+      conversationId: "conv-1",
+    });
+    expect(result).toBe("u1");
+    expect(fake.updates).toContainEqual({ table: "conversations", row: { assigned_to: "u1" }, id: "conv-1" });
+    expect(fake.updates).toContainEqual({
+      table: "workspaces",
+      row: { last_assigned_member_id: "u1" },
+      id: "ws-1",
+    });
+  });
+
+  it("wraps around to the first member after the last one", async () => {
+    const fake = makeFake({ autoAssign: true, lastAssignedMemberId: "u2", memberIds: ["u1", "u2"] });
+    const result = await assignConversationRoundRobin({
+      supabase: fake.client,
+      workspaceId: "ws-1",
+      conversationId: "conv-1",
+    });
+    expect(result).toBe("u1");
+  });
+
+  it("picks the next member in order otherwise", async () => {
+    const fake = makeFake({ autoAssign: true, lastAssignedMemberId: "u1", memberIds: ["u1", "u2", "u3"] });
+    const result = await assignConversationRoundRobin({
+      supabase: fake.client,
+      workspaceId: "ws-1",
+      conversationId: "conv-1",
+    });
+    expect(result).toBe("u2");
+  });
+
+  it("returns null when the workspace has no members", async () => {
+    const fake = makeFake({ autoAssign: true, lastAssignedMemberId: null, memberIds: [] });
+    const result = await assignConversationRoundRobin({
+      supabase: fake.client,
+      workspaceId: "ws-1",
+      conversationId: "conv-1",
+    });
+    expect(result).toBeNull();
   });
 });
