@@ -49,11 +49,13 @@ async function processEnrollment(
     contact_id: string;
     channel_id: string;
     current_step_index: number;
+    enrolled_at: string;
     sequences: {
       id: string;
       workspace_id: string;
       steps: unknown;
       status: string;
+      stop_on_reply: boolean;
     } | null;
   }
 ) {
@@ -65,6 +67,25 @@ async function processEnrollment(
       .update({ status: "cancelled" })
       .eq("id", enrollment.id);
     return;
+  }
+
+  // ManyChat-style "DM if no response": once the contact has actually
+  // replied since they were enrolled, stop sending the rest of the drip
+  // (unless the sequence owner opted out of that behavior).
+  if (sequence.stop_on_reply) {
+    const hasReplied = await contactRepliedSince(
+      supabase,
+      enrollment.contact_id,
+      enrollment.channel_id,
+      enrollment.enrolled_at
+    );
+    if (hasReplied) {
+      await supabase
+        .from("sequence_enrollments")
+        .update({ status: "cancelled", completed_at: new Date().toISOString() })
+        .eq("id", enrollment.id);
+      return;
+    }
   }
 
   const steps = (sequence.steps as SequenceStep[]) || [];
@@ -132,6 +153,36 @@ async function processEnrollment(
       next_step_at: nextStepAt,
     })
     .eq("id", enrollment.id);
+}
+
+/**
+ * Whether the contact has sent an inbound message on this channel since
+ * `since` (their enrollment time). Used to stop a "DM if no response"
+ * sequence the moment they actually reply.
+ */
+async function contactRepliedSince(
+  supabase: Awaited<ReturnType<typeof createServiceClient>>,
+  contactId: string,
+  channelId: string,
+  since: string
+): Promise<boolean> {
+  const { data: conversation } = await supabase
+    .from("conversations")
+    .select("id")
+    .eq("contact_id", contactId)
+    .eq("channel_id", channelId)
+    .single();
+
+  if (!conversation) return false;
+
+  const { count } = await supabase
+    .from("messages")
+    .select("id", { count: "exact", head: true })
+    .eq("conversation_id", conversation.id)
+    .eq("direction", "inbound")
+    .gt("created_at", since);
+
+  return (count ?? 0) > 0;
 }
 
 async function sendSequenceMessage(
