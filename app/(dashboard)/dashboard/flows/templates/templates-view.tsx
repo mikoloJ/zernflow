@@ -75,7 +75,7 @@ const templates: FlowTemplate[] = [
         position: { x: 250, y: 150 },
         data: {
           label: "Greeting",
-          text: "Hey there! Welcome! We're glad to have you here. How can we help you today?",
+          messages: [{ text: "Hey there! Welcome! We're glad to have you here. How can we help you today?" }],
         },
       },
       {
@@ -94,7 +94,7 @@ const templates: FlowTemplate[] = [
         position: { x: 250, y: 450 },
         data: {
           label: "Follow-up",
-          text: "By the way, feel free to ask me anything. I'm here to help!",
+          messages: [{ text: "By the way, feel free to ask me anything. I'm here to help!" }],
         },
       },
     ],
@@ -146,7 +146,11 @@ const templates: FlowTemplate[] = [
         position: { x: 50, y: 350 },
         data: {
           label: "Help response",
-          text: "Here are some things I can help you with:\n- Pricing info\n- Account setup\n- Technical support\n\nJust type your question and I'll do my best!",
+          messages: [
+            {
+              text: "Here are some things I can help you with:\n- Pricing info\n- Account setup\n- Technical support\n\nJust type your question and I'll do my best!",
+            },
+          ],
         },
       },
       {
@@ -155,7 +159,11 @@ const templates: FlowTemplate[] = [
         position: { x: 450, y: 350 },
         data: {
           label: "FAQ response",
-          text: "Here are our most frequently asked questions:\n\n1. How do I get started?\n2. What plans are available?\n3. How do I contact support?\n\nReply with a number for more details!",
+          messages: [
+            {
+              text: "Here are our most frequently asked questions:\n\n1. How do I get started?\n2. What plans are available?\n3. How do I contact support?\n\nReply with a number for more details!",
+            },
+          ],
         },
       },
     ],
@@ -201,7 +209,7 @@ const templates: FlowTemplate[] = [
         position: { x: 250, y: 120 },
         data: {
           label: "Ask name",
-          text: "Great, I'd love to help! What's your name?",
+          messages: [{ text: "Great, I'd love to help! What's your name?" }],
         },
       },
       {
@@ -230,7 +238,7 @@ const templates: FlowTemplate[] = [
         position: { x: 250, y: 480 },
         data: {
           label: "Ask email",
-          text: "Thanks, {{name}}! What's your email address so we can send you more details?",
+          messages: [{ text: "Thanks, {{name}}! What's your email address so we can send you more details?" }],
         },
       },
       {
