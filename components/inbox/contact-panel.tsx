@@ -8,12 +8,24 @@ import {
   Tag,
   User,
   Hash,
+  UserCircle,
+  Image as ImageIcon,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 import { PlatformIcon } from "@/components/platform-icon";
 import { Avatar } from "@/components/inbox/avatar";
 import type { Database, Platform } from "@/lib/types/database";
+
+type TeamMember = { userId: string; role: string; email: string; name: string };
+
+/** Attachment shape as stored in messages.extra (see lib/inbox-messages.ts). */
+interface MediaAttachment {
+  type: string;
+  url?: string;
+  previewUrl?: string;
+  filename?: string;
+}
 
 type Contact = Database["public"]["Tables"]["contacts"]["Row"];
 type TagRow = Database["public"]["Tables"]["tags"]["Row"];
@@ -45,15 +57,83 @@ function formatDate(dateStr: string | null): string {
 
 export function ContactPanel({
   contactId,
+  conversationId,
+  assignedTo,
   workspaceId,
   onClose,
 }: {
   contactId: string | null;
+  conversationId?: string | null;
+  assignedTo?: string | null;
   workspaceId: string;
   onClose: () => void;
 }) {
   const [loadedDetails, setDetails] = useState<ContactDetails | null>(null);
   const [loading, setLoading] = useState(false);
+  const [tab, setTab] = useState<"info" | "media">("info");
+  const [members, setMembers] = useState<TeamMember[]>([]);
+  const [assigning, setAssigning] = useState(false);
+  const [media, setMedia] = useState<MediaAttachment[] | null>(null);
+  const [mediaLoading, setMediaLoading] = useState(false);
+  const [localAssignedTo, setLocalAssignedTo] = useState(assignedTo ?? null);
+  // Re-sync from the prop when a different conversation is selected (React's
+  // "adjusting state when a prop changes" pattern — during render, not in an
+  // effect, so a stale value never flashes).
+  const [syncedFor, setSyncedFor] = useState(conversationId);
+  if (syncedFor !== conversationId) {
+    setSyncedFor(conversationId);
+    setLocalAssignedTo(assignedTo ?? null);
+  }
+
+  useEffect(() => {
+    fetch("/api/v1/team/members")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => setMembers(d?.members ?? []))
+      .catch(() => {});
+  }, []);
+
+  // New contact/conversation selected: reset the tab and cached media (same
+  // during-render pattern as the assignment sync above).
+  if (syncedFor !== conversationId) {
+    setTab("info");
+    setMedia(null);
+  }
+
+  useEffect(() => {
+    if (tab !== "media" || !conversationId || media !== null) return;
+    async function loadMedia() {
+      setMediaLoading(true);
+      try {
+        const res = await fetch(`/api/v1/messages?conversationId=${conversationId}`);
+        const msgs: Array<{
+          extra?: { attachments?: MediaAttachment[]; storyReply?: { url?: string | null } | null; isStoryMention?: boolean };
+        }> = res.ok ? await res.json() : [];
+        const items: MediaAttachment[] = [];
+        for (const m of msgs ?? []) {
+          for (const a of m.extra?.attachments ?? []) {
+            if ((a.type === "image" || a.type === "video") && (a.url || a.previewUrl)) items.push(a);
+          }
+          if (m.extra?.isStoryMention && m.extra.storyReply?.url) {
+            items.push({ type: "image", url: m.extra.storyReply.url });
+          }
+        }
+        setMedia(items);
+      } catch {
+        setMedia([]);
+      } finally {
+        setMediaLoading(false);
+      }
+    }
+    loadMedia();
+  }, [tab, conversationId, media]);
+
+  async function assignTo(userId: string | null) {
+    if (!conversationId) return;
+    setAssigning(true);
+    setLocalAssignedTo(userId);
+    await createClient().from("conversations").update({ assigned_to: userId }).eq("id", conversationId);
+    setAssigning(false);
+  }
 
   useEffect(() => {
     if (!contactId) return;
@@ -127,9 +207,66 @@ export function ContactPanel({
         </button>
       </div>
 
+      {/* Tabs */}
+      {conversationId && (
+        <div className="flex border-b border-border px-4">
+          {(["info", "media"] as const).map((t) => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className={cn(
+                "-mb-px border-b-2 px-3 py-2 text-xs font-medium capitalize transition-colors",
+                tab === t
+                  ? "border-primary text-foreground"
+                  : "border-transparent text-muted-foreground hover:text-foreground"
+              )}
+            >
+              {t === "media" ? "Media" : "Info"}
+            </button>
+          ))}
+        </div>
+      )}
+
       {loading ? (
         <div className="flex flex-1 items-center justify-center">
           <div className="h-6 w-6 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" />
+        </div>
+      ) : tab === "media" ? (
+        <div className="flex-1 overflow-y-auto p-4">
+          {mediaLoading ? (
+            <div className="flex justify-center py-8">
+              <div className="h-6 w-6 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" />
+            </div>
+          ) : !media || media.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12 text-center text-sm text-muted-foreground">
+              <ImageIcon className="h-8 w-8 text-muted-foreground/50" />
+              <p className="mt-2">No photos or videos yet</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-3 gap-1.5">
+              {media.map((m, i) => (
+                <a
+                  key={i}
+                  href={m.url ?? m.previewUrl ?? undefined}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="relative aspect-square overflow-hidden rounded-md bg-muted"
+                >
+                  {m.type === "video" ? (
+                    <video src={m.url ?? undefined} className="h-full w-full object-cover" muted />
+                  ) : (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={m.url ?? m.previewUrl ?? ""} alt="" className="h-full w-full object-cover" />
+                  )}
+                  {m.type === "video" && (
+                    <span className="absolute bottom-1 right-1 rounded bg-black/60 px-1 text-[9px] font-medium text-white">
+                      Video
+                    </span>
+                  )}
+                </a>
+              ))}
+            </div>
+          )}
         </div>
       ) : details ? (
         <div className="flex-1 overflow-y-auto">
@@ -162,6 +299,29 @@ export function ContactPanel({
 
           {/* Details */}
           <div className="space-y-4 p-4">
+            {/* Assignment */}
+            {conversationId && (
+              <div>
+                <h4 className="flex items-center gap-1.5 text-xs font-medium uppercase text-muted-foreground">
+                  <UserCircle className="h-3 w-3" />
+                  Assigned To
+                </h4>
+                <select
+                  value={localAssignedTo ?? ""}
+                  disabled={assigning}
+                  onChange={(e) => assignTo(e.target.value || null)}
+                  className="mt-1.5 w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm disabled:opacity-60"
+                >
+                  <option value="">Unassigned</option>
+                  {members.map((m) => (
+                    <option key={m.userId} value={m.userId}>
+                      {m.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
             {/* Connected platforms */}
             {details.channels.length > 0 && (
               <div>

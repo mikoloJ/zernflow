@@ -1,16 +1,21 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Search, MessageSquare } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 import { PlatformIcon } from "@/components/platform-icon";
 import { Avatar } from "@/components/inbox/avatar";
+import { PLATFORMS, PLATFORM_LABELS } from "@/lib/platforms";
 import type { Database, Platform, ConversationStatus } from "@/lib/types/database";
 
 type Conversation = Database["public"]["Tables"]["conversations"]["Row"] & {
   contacts: Database["public"]["Tables"]["contacts"]["Row"] | null;
 };
+
+type TeamMember = { userId: string; role: string; email: string; name: string };
+
+type SortOrder = "recent" | "oldest" | "unread";
 
 function formatTime(dateStr: string | null): string {
   if (!dateStr) return "";
@@ -43,6 +48,17 @@ export function ConversationList({
   const [conversations, setConversations] = useState(initialConversations);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<ConversationStatus | "all">("open");
+  const [platformFilter, setPlatformFilter] = useState<Platform | "all">("all");
+  const [assigneeFilter, setAssigneeFilter] = useState<"all" | "unassigned" | string>("all");
+  const [sortOrder, setSortOrder] = useState<SortOrder>("recent");
+  const [members, setMembers] = useState<TeamMember[]>([]);
+
+  useEffect(() => {
+    fetch("/api/v1/team/members")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => setMembers(d?.members ?? []))
+      .catch(() => {});
+  }, []);
   // Relative timestamps depend on the client's clock/locale, which differ from the
   // server's during SSR and trigger a hydration mismatch (React #418, which crashes
   // the inbox in production). Defer time rendering until after mount so the server
@@ -101,16 +117,31 @@ export function ConversationList({
     };
   }, [workspaceId]);
 
-  const filtered = conversations.filter((c) => {
-    if (statusFilter !== "all" && c.status !== statusFilter) return false;
-    if (search) {
-      const name = c.contacts?.display_name?.toLowerCase() ?? "";
-      const preview = c.last_message_preview?.toLowerCase() ?? "";
-      const q = search.toLowerCase();
-      if (!name.includes(q) && !preview.includes(q)) return false;
-    }
-    return true;
-  });
+  const filtered = useMemo(() => {
+    const rows = conversations.filter((c) => {
+      if (statusFilter !== "all" && c.status !== statusFilter) return false;
+      if (platformFilter !== "all" && c.platform !== platformFilter) return false;
+      if (assigneeFilter === "unassigned" && c.assigned_to) return false;
+      if (assigneeFilter !== "all" && assigneeFilter !== "unassigned" && c.assigned_to !== assigneeFilter)
+        return false;
+      if (search) {
+        const name = c.contacts?.display_name?.toLowerCase() ?? "";
+        const preview = c.last_message_preview?.toLowerCase() ?? "";
+        const q = search.toLowerCase();
+        if (!name.includes(q) && !preview.includes(q)) return false;
+      }
+      return true;
+    });
+
+    return [...rows].sort((a, b) => {
+      if (sortOrder === "unread") {
+        if (a.unread_count !== b.unread_count) return b.unread_count - a.unread_count;
+      }
+      const aTime = new Date(a.last_message_at ?? a.created_at).getTime();
+      const bTime = new Date(b.last_message_at ?? b.created_at).getTime();
+      return sortOrder === "oldest" ? aTime - bTime : bTime - aTime;
+    });
+  }, [conversations, statusFilter, platformFilter, assigneeFilter, sortOrder, search]);
 
   return (
     <div className="flex h-full flex-col border-r border-border bg-background">
@@ -152,6 +183,44 @@ export function ConversationList({
             {status}
           </button>
         ))}
+      </div>
+
+      {/* Platform / assignee / sort */}
+      <div className="grid grid-cols-3 gap-1.5 px-3 pb-2">
+        <select
+          value={platformFilter}
+          onChange={(e) => setPlatformFilter(e.target.value as Platform | "all")}
+          className="min-w-0 rounded-md border border-input bg-background px-1.5 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
+        >
+          <option value="all">All platforms</option>
+          {PLATFORMS.map((p) => (
+            <option key={p} value={p}>
+              {PLATFORM_LABELS[p]}
+            </option>
+          ))}
+        </select>
+        <select
+          value={assigneeFilter}
+          onChange={(e) => setAssigneeFilter(e.target.value)}
+          className="min-w-0 rounded-md border border-input bg-background px-1.5 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
+        >
+          <option value="all">Anyone</option>
+          <option value="unassigned">Unassigned</option>
+          {members.map((m) => (
+            <option key={m.userId} value={m.userId}>
+              {m.name}
+            </option>
+          ))}
+        </select>
+        <select
+          value={sortOrder}
+          onChange={(e) => setSortOrder(e.target.value as SortOrder)}
+          className="min-w-0 rounded-md border border-input bg-background px-1.5 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
+        >
+          <option value="recent">Newest</option>
+          <option value="oldest">Oldest</option>
+          <option value="unread">Unread first</option>
+        </select>
       </div>
 
       {/* Conversation list */}
