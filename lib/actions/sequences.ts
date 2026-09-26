@@ -29,6 +29,7 @@ export async function updateSequence(
     description?: string | null;
     steps?: SequenceStep[];
     status?: "draft" | "active" | "paused";
+    stopOnReply?: boolean;
   }
 ) {
   const { workspace, supabase } = await getWorkspace();
@@ -43,11 +44,14 @@ export async function updateSequence(
 
   if (!existing) return { error: "Sequence not found" };
 
+  const { stopOnReply, ...rest } = updates;
+
   const { data, error } = await supabase
     .from("sequences")
     .update({
-      ...updates,
+      ...rest,
       steps: updates.steps ? JSON.parse(JSON.stringify(updates.steps)) : undefined,
+      ...(stopOnReply !== undefined ? { stop_on_reply: stopOnReply } : {}),
       updated_at: new Date().toISOString(),
     })
     .eq("id", sequenceId)
