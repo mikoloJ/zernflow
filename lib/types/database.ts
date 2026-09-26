@@ -76,6 +76,8 @@ export interface Database {
           ai_api_key: string | null;
           ai_provider: string;
           global_keywords: Json | null;
+          auto_assign_conversations: boolean;
+          last_assigned_member_id: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -87,6 +89,8 @@ export interface Database {
           ai_api_key?: string | null;
           ai_provider?: string;
           global_keywords?: Json | null;
+          auto_assign_conversations?: boolean;
+          last_assigned_member_id?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -98,6 +102,8 @@ export interface Database {
           ai_api_key?: string | null;
           ai_provider?: string;
           global_keywords?: Json | null;
+          auto_assign_conversations?: boolean;
+          last_assigned_member_id?: string | null;
           updated_at?: string;
         };
         Relationships: [];
