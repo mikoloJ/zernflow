@@ -1202,3 +1202,14 @@ alter table comment_automations
 
 create index if not exists idx_flows_folder on flows(folder_id);
 create index if not exists idx_comment_automations_folder on comment_automations(folder_id);
+
+-- ============================================================
+-- MIGRATION 21: SEQUENCES - STOP ON REPLY
+-- ============================================================
+-- ManyChat-style "DM if no response": a drip sequence should stop
+-- following up once the contact actually replies. Defaults to true
+-- (the common case) but is a per-sequence toggle since some sequences
+-- (e.g. plain broadcasts/announcements) should keep going regardless.
+
+alter table sequences
+  add column if not exists stop_on_reply boolean not null default true;
