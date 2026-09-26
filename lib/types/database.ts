@@ -300,6 +300,32 @@ export interface Database {
           },
         ];
       };
+      automation_folders: {
+        Row: {
+          id: string;
+          workspace_id: string;
+          name: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          workspace_id: string;
+          name: string;
+          created_at?: string;
+        };
+        Update: {
+          name?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "automation_folders_workspace_id_fkey";
+            columns: ["workspace_id"];
+            isOneToOne: false;
+            referencedRelation: "workspaces";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       contact_tags: {
         Row: {
           contact_id: string;
@@ -444,6 +470,7 @@ export interface Database {
           viewport: Json | null;
           version: number;
           published_at: string | null;
+          folder_id: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -458,6 +485,7 @@ export interface Database {
           viewport?: Json | null;
           version?: number;
           published_at?: string | null;
+          folder_id?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -470,6 +498,7 @@ export interface Database {
           viewport?: Json | null;
           version?: number;
           published_at?: string | null;
+          folder_id?: string | null;
           updated_at?: string;
         };
         Relationships: [
@@ -478,6 +507,13 @@ export interface Database {
             columns: ["workspace_id"];
             isOneToOne: false;
             referencedRelation: "workspaces";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "flows_folder_id_fkey";
+            columns: ["folder_id"];
+            isOneToOne: false;
+            referencedRelation: "automation_folders";
             referencedColumns: ["id"];
           },
         ];
@@ -927,6 +963,7 @@ export interface Database {
           opening_dms_sent: number;
           button_taps: number;
           link_dms_sent: number;
+          folder_id: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -942,6 +979,7 @@ export interface Database {
           opening_dms_sent?: number;
           button_taps?: number;
           link_dms_sent?: number;
+          folder_id?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -957,10 +995,19 @@ export interface Database {
           opening_dms_sent?: number;
           button_taps?: number;
           link_dms_sent?: number;
+          folder_id?: string | null;
           created_at?: string;
           updated_at?: string;
         };
-        Relationships: [];
+        Relationships: [
+          {
+            foreignKeyName: "comment_automations_folder_id_fkey";
+            columns: ["folder_id"];
+            isOneToOne: false;
+            referencedRelation: "automation_folders";
+            referencedColumns: ["id"];
+          },
+        ];
       };
       comment_logs: {
         Row: {
