@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, Json } from "@/lib/types/database";
 import { createZernioClient } from "@/lib/zernio-client";
 import { upsertContactForSender } from "@/lib/inbox-sync";
+import { messagePreview } from "@/lib/message-preview";
 
 import {
   buttonPayload,
@@ -189,6 +190,26 @@ export async function runCommentAutomations({
         }
       }
     }
+  }
+
+  // The private reply (or its fallback) above is the actual DM send, but
+  // neither Zernio call touches our local `conversations` row — so without
+  // this, a contact who only ever interacts via comment automations never
+  // gets last_message_at bumped and their thread never sorts to the top of
+  // the Inbox, no matter how many automation DMs actually went out.
+  if (dmSent && contact) {
+    await supabase.from("conversations").upsert(
+      {
+        workspace_id: channel.workspace_id,
+        channel_id: channel.id,
+        contact_id: contact.contactId,
+        platform: channel.platform,
+        last_message_at: new Date().toISOString(),
+        last_message_preview: messagePreview(dmMessage),
+        unread_count: 0,
+      },
+      { onConflict: "channel_id,contact_id" }
+    );
   }
 
   let replySent = false;
