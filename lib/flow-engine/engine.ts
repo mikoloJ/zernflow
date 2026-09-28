@@ -216,8 +216,30 @@ export async function resumeSession(
     return;
   }
 
-  // Get next node after the current one
-  const nextEdge = edges.find((e) => e.source === currentNode.id);
+  // Get next node after the current one. A Send Message node with wired
+  // buttons/quick replies routes by which one the reply matches; everything
+  // else (smartDelay, etc.) keeps the single unconditional next edge.
+  let nextEdge: FlowEdge | undefined;
+  if (currentNode.type === "sendMessage") {
+    const matched = matchTappedButton(
+      currentNode.data as SendMessageNodeData,
+      context.incomingMessage
+    );
+    if (matched) {
+      const handle = matched.replace("handle:", "");
+      nextEdge = edges.find(
+        (e) => e.source === currentNode.id && e.sourceHandle === handle
+      );
+    }
+    if (!nextEdge) {
+      // Reply didn't match any wired button (free text instead of a tap) —
+      // fall back to the plain default edge, if the flow has one.
+      nextEdge = edges.find((e) => e.source === currentNode.id && !e.sourceHandle);
+    }
+  } else {
+    nextEdge = edges.find((e) => e.source === currentNode.id);
+  }
+
   if (!nextEdge) {
     await completeSession(supabase, session.id);
     return;
@@ -283,7 +305,7 @@ async function traverseNodes(
   });
 
   // Execute the node
-  const result = await executeNode(supabase, node, context, sessionId);
+  const result = await executeNode(supabase, node, context, sessionId, edges);
 
   // Persist variables written by output-producing nodes so they survive
   // pauses (resumeSession reloads them from the session row).
@@ -329,11 +351,25 @@ async function executeNode(
   supabase: SupabaseClient<Database>,
   node: FlowNode,
   context: FlowExecutionContext,
-  sessionId: string
+  sessionId: string,
+  edges: FlowEdge[]
 ): Promise<string | void> {
   switch (node.type) {
     case "sendMessage":
-      return executeSendMessage(supabase, node.data as SendMessageNodeData, context);
+      await executeSendMessage(supabase, node.data as SendMessageNodeData, context);
+      // Only pause for a tap when at least one button/quick reply was
+      // actually wired to its own connection (see hasButtonRouting below).
+      // A plain message, or one whose buttons were never wired past the
+      // default "Next Step" edge, keeps the old behavior of continuing
+      // immediately — so existing flows are unaffected.
+      if (hasButtonRouting(node.id, edges)) {
+        await supabase
+          .from("flow_sessions")
+          .update({ waiting_for_input: true, current_node_id: node.id })
+          .eq("id", sessionId);
+        return "pause";
+      }
+      return;
     case "condition":
       return executeCondition(supabase, node.data as ConditionNodeData, context);
     case "delay":
@@ -372,6 +408,46 @@ async function executeNode(
     default:
       return;
   }
+}
+
+/** Whether any edge out of this node is sourced from a specific button/quick
+ * reply handle (see send-message-node.tsx), rather than only the plain
+ * default "Next Step" edge (no sourceHandle). */
+function hasButtonRouting(nodeId: string, edges: FlowEdge[]): boolean {
+  return edges.some(
+    (e) =>
+      e.source === nodeId &&
+      !!e.sourceHandle &&
+      (e.sourceHandle.startsWith("btn:") || e.sourceHandle.startsWith("qr:"))
+  );
+}
+
+/**
+ * Match a resumed reply back to the specific button/quick reply that was
+ * tapped on a paused Send Message node, by comparing its outgoing `payload`
+ * (the value actually sent to and echoed back by the platform) against
+ * whichever of postbackPayload/quickReplyPayload came in. Returns the
+ * "handle:btn:<id>" / "handle:qr:<id>" traversal result for that item, or
+ * null when the reply doesn't match any wired button (e.g. the contact typed
+ * free text instead of tapping one).
+ */
+function matchTappedButton(
+  data: SendMessageNodeData,
+  incoming: FlowExecutionContext["incomingMessage"]
+): string | null {
+  for (const m of data.messages) {
+    if (incoming.postbackPayload) {
+      const btn = m.buttons?.find(
+        (b) => b.type === "postback" && b.id && b.payload === incoming.postbackPayload
+      );
+      if (btn) return `handle:btn:${btn.id}`;
+    }
+    if (incoming.quickReplyPayload) {
+      const qr = m.quickReplies?.find((q) => q.id && q.payload === incoming.quickReplyPayload);
+      if (qr) return `handle:qr:${qr.id}`;
+    }
+  }
+  return null;
 }
 
 async function sendFirstMessageAsPrivateReply(

@@ -46,8 +46,14 @@ export interface SendMessageNodeData {
   messages: Array<{
     text?: string;
     imageUrl?: string;
-    quickReplies?: Array<{ title: string; payload: string }>;
+    // `id` is a stable per-node identifier (independent from `payload`, which
+    // is the literal string sent to the platform and echoed back on tap) used
+    // to wire this specific button/quick reply to a canvas connection, so a
+    // Send Message node can branch to a different next node per button —
+    // instead of every button falling through the same single "Next Step".
+    quickReplies?: Array<{ id?: string; title: string; payload: string }>;
     buttons?: Array<{
+      id?: string;
       title: string;
       type: "postback" | "url";
       payload?: string;
@@ -59,6 +65,7 @@ export interface SendMessageNodeData {
         title: string;
         subtitle?: string;
         buttons?: Array<{
+          id?: string;
           type: "postback" | "url";
           title: string;
           payload?: string;
@@ -170,6 +177,8 @@ export interface FlowExecutionContext {
     postbackPayload?: string;
     quickReplyPayload?: string;
     callbackData?: string;
+    /** Instagram only: a reply to (or mention of) one of our stories, not a real DM. */
+    isStoryReply?: boolean;
     sender?: { id: string; name?: string; username?: string };
   };
   variables?: Record<string, string>;
