@@ -1,5 +1,6 @@
 import { getWorkspace } from "@/lib/workspace";
 import { Sidebar } from "@/components/sidebar";
+import { NewMessageWatcher } from "@/components/inbox/new-message-watcher";
 
 export default async function DashboardLayout({
   children,
@@ -22,6 +23,7 @@ export default async function DashboardLayout({
 
   return (
     <div className="flex h-screen">
+      <NewMessageWatcher workspaceId={workspace.id} />
       <Sidebar workspace={workspace} user={user} workspaces={workspaces} />
       <main className="min-h-0 flex-1 overflow-hidden">{children}</main>
     </div>
