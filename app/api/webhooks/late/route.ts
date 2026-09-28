@@ -323,7 +323,23 @@ async function processMessageEvent(
       .then(() => {});
   }
 
-  // Messages are stored by Zernio (source of truth) — no local insert needed.
+  // Messages themselves are still Zernio's source of truth for the inbox
+  // (fetched live from its API), but we mirror the text locally, purely so
+  // broadcasts/segments can keyword-match on it (same reason comment_logs
+  // exists for post comments) — skip attachment-only messages, which have
+  // no text to match on.
+  if (msg.text) {
+    await supabase.from("dm_message_logs").upsert(
+      {
+        channel_id: channel.id,
+        workspace_id: channel.workspace_id,
+        contact_id: contactId,
+        platform_message_id: msg.platformMessageId,
+        message_text: msg.text,
+      },
+      { onConflict: "channel_id,platform_message_id" }
+    );
+  }
 
   // ── Flow engine ───────────────────────────────────────────────────────────
 
