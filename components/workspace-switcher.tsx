@@ -20,9 +20,11 @@ function avatarUrl(seed: string, size = 28) {
 export function WorkspaceSwitcher({
   current,
   workspaces,
+  collapsed = false,
 }: {
   current: { id: string; name: string };
   workspaces: WorkspaceItem[];
+  collapsed?: boolean;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -80,26 +82,44 @@ export function WorkspaceSwitcher({
     <div ref={dropdownRef} className="relative">
       <button
         onClick={() => setOpen(!open)}
-        className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-sidebar-accent transition-colors"
+        title={collapsed ? current.name : undefined}
+        className={cn(
+          "flex w-full items-center gap-2 rounded-lg py-1.5 text-left hover:bg-sidebar-accent transition-colors",
+          collapsed ? "justify-center px-0" : "px-2"
+        )}
       >
         <img
           src={avatarUrl(current.id)}
           alt=""
-          className="h-7 w-7 rounded-md"
+          className="h-7 w-7 shrink-0 rounded-md"
         />
-        <span className="flex-1 truncate text-sm font-semibold text-sidebar-foreground">
-          {current.name}
-        </span>
-        <ChevronDown
-          className={cn(
-            "h-3.5 w-3.5 text-sidebar-foreground/50 transition-transform",
-            open && "rotate-180"
-          )}
-        />
+        {!collapsed && (
+          <>
+            <span className="flex-1 truncate text-sm font-semibold text-sidebar-foreground">
+              {current.name}
+            </span>
+            <ChevronDown
+              className={cn(
+                "h-3.5 w-3.5 text-sidebar-foreground/50 transition-transform",
+                open && "rotate-180"
+              )}
+            />
+          </>
+        )}
       </button>
 
       {open && (
-        <div className="absolute left-0 right-0 top-full z-50 mt-1 rounded-lg border border-border bg-popover p-1 shadow-lg">
+        <div
+          className={cn(
+            "absolute top-full z-50 mt-1 w-56 rounded-lg border border-border bg-popover p-1 shadow-lg",
+            collapsed ? "left-0" : "left-0 right-0 w-auto"
+          )}
+        >
+          {collapsed && (
+            <div className="px-2 py-1 text-xs font-medium text-muted-foreground">
+              Switch workspace
+            </div>
+          )}
           {/* Workspace list */}
           {workspaces.map((ws) => {
             const isActive = ws.id === current.id;
