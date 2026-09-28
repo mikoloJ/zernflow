@@ -250,6 +250,10 @@ async function sendSequenceMessage(
       status: "sent",
       platform_message_id: response.data?.data?.messageId || null,
     });
+
+    // Clear unread instantly rather than waiting on a webhook echo of this
+    // same send (same reasoning as the manual-send route and flow engine).
+    await supabase.from("conversations").update({ unread_count: 0 }).eq("id", conversation.id);
   } catch (err) {
     console.error("Failed to send sequence message:", err);
 
