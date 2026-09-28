@@ -15,7 +15,7 @@ import type { Zernio } from "./zernio-client";
 export const WEBHOOK_NAME = "Zernflow";
 
 /** Events Zernflow needs delivered to its webhook. */
-export type WebhookEvent = "message.received" | "comment.received";
+export type WebhookEvent = "message.received" | "comment.received" | "conversation.started";
 
 export interface EnsureWebhookOptions {
   /** Public base URL of this Zernflow deployment (e.g. NEXT_PUBLIC_APP_URL). */

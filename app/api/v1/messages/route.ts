@@ -283,6 +283,19 @@ export async function POST(request: NextRequest) {
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const messageId = (res.data as any)?.data?.messageId ?? null;
+    // Zernio echoes the conversation id the send actually resolved to, which
+    // can differ from what we sent when sendConversationId was just resynced
+    // (or, for platforms where list-conversations returns a different id
+    // shape than sendInboxMessage, even otherwise). Persist it so the next
+    // send starts from a known-good id instead of relying on this route's
+    // reactive resync to catch drift again next time.
+    const echoedConversationId = (res.data as any)?.data?.conversationId as string | undefined;
+    if (echoedConversationId && echoedConversationId !== conversation.late_conversation_id) {
+      await supabase
+        .from("conversations")
+        .update({ late_conversation_id: echoedConversationId })
+        .eq("id", conversationId);
+    }
     const attachments = attachmentUrl ? [{ type: attachmentType, url: attachmentUrl }] : null;
 
     // Keep our own record so the inbox can show this was sent by a person.

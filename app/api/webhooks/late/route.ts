@@ -77,6 +77,23 @@ interface WebhookPayload {
   timestamp: string;
 }
 
+interface ConversationStartedWebhookPayload {
+  id?: string;
+  event: string;
+  conversation: {
+    id: string;
+    platformConversationId: string | null;
+    participantId: string;
+    participantName: string;
+    participantUsername: string | null;
+    participantPicture: string | null;
+    status: string;
+  };
+  account: { id: string; platform: string; username: string; displayName: string };
+  startedAt: string;
+  timestamp: string;
+}
+
 interface CommentWebhookPayload {
   id?: string;
   event: string;
@@ -148,6 +165,10 @@ async function handleWebhook(request: NextRequest) {
 
   if (parsed.event === "comment.received") {
     return handleCommentWebhook(parsed as CommentWebhookPayload, body, signature, eventId);
+  }
+
+  if (parsed.event === "conversation.started") {
+    return handleConversationStartedWebhook(parsed as ConversationStartedWebhookPayload, body, signature, eventId);
   }
 
   // Everything else besides message.received is acknowledged and ignored
@@ -501,6 +522,88 @@ async function handleCommentWebhook(
       });
     } catch (err) {
       console.error("Webhook comment processing error:", err);
+    }
+  });
+
+  return NextResponse.json({ ok: true, queued: true });
+}
+
+// ── Conversation started ────────────────────────────────────────────────────
+
+/**
+ * Fires once per genuinely new Zernio conversation object for a participant
+ * (per Zernio: "the first time [a] conversation appears"). A participant can
+ * end up with more than one conversation object over time — e.g. Meta/Zernio
+ * starting a fresh thread after a private-reply-driven DM — which otherwise
+ * leaves the `late_conversation_id` we stored pointing at a superseded
+ * thread until a send fails and the reactive resync in
+ * refreshLateConversationId (lib/inbox-sync.ts) kicks in. Handling this event
+ * keeps it fresh proactively instead.
+ */
+async function handleConversationStartedWebhook(
+  payload: ConversationStartedWebhookPayload,
+  rawBody: string,
+  signature: string | null,
+  eventId: string | null | undefined
+) {
+  const supabase = await createServiceClient();
+
+  const { data: channel } = await supabase
+    .from("channels")
+    .select("*")
+    .eq("late_account_id", payload.account.id)
+    .eq("is_active", true)
+    .single();
+
+  if (!channel) {
+    return NextResponse.json({ error: "Channel not found" }, { status: 404 });
+  }
+
+  const secret = await resolveWebhookSecret(supabase, channel);
+  if (secret && !verifyWebhookSignature(secret, rawBody, signature)) {
+    return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
+  }
+
+  if (!(await claimWebhookEvent(supabase, eventId))) {
+    return NextResponse.json({ ok: true, skipped: true, reason: "duplicate_event" });
+  }
+
+  after(async () => {
+    try {
+      const { conversation: conv } = payload;
+
+      const contact = await upsertContactForSender({
+        supabase,
+        channel,
+        senderId: conv.participantId,
+        senderName: conv.participantName || conv.participantUsername || conv.participantId,
+        senderPicture: conv.participantPicture || null,
+        senderUsername: conv.participantUsername || null,
+        interactionAt: payload.startedAt,
+        stampExisting: false,
+      });
+
+      if (!contact) {
+        console.error("Failed to create contact for conversation.started webhook");
+        return;
+      }
+
+      // Upserts on (channel_id, contact_id): a contact with an existing,
+      // possibly-stale conversation row has its late_conversation_id
+      // corrected to the new one Zernio just started, without touching
+      // unread_count/last_message_preview/status that only message events own.
+      await supabase.from("conversations").upsert(
+        {
+          workspace_id: channel.workspace_id,
+          channel_id: channel.id,
+          contact_id: contact.contactId,
+          platform: channel.platform,
+          late_conversation_id: conv.id,
+        },
+        { onConflict: "channel_id,contact_id" }
+      );
+    } catch (err) {
+      console.error("Webhook conversation.started processing error:", err);
     }
   });
 

@@ -159,7 +159,7 @@ export async function runCommentAutomations({
 
       if (existingConversation?.late_conversation_id) {
         try {
-          await zernio.messages.sendInboxMessage({
+          const fallbackRes = await zernio.messages.sendInboxMessage({
             path: { conversationId: existingConversation.late_conversation_id },
             body: {
               accountId: channel.late_account_id,
@@ -171,6 +171,19 @@ export async function runCommentAutomations({
           await bump(supabase, automation.id, usingOpeningDm ? "opening_dms_sent" : "link_dms_sent");
           dmSent = true;
           error = undefined;
+
+          // Persist the conversation id Zernio actually sent on — it can
+          // differ from what we had stored, and this send just proved it's
+          // the live one. Otherwise a later manual send from the Inbox keeps
+          // hitting the same stale id this fallback just worked around.
+          const echoedConversationId = (fallbackRes.data as any)?.data?.conversationId as string | undefined;
+          if (echoedConversationId && echoedConversationId !== existingConversation.late_conversation_id) {
+            await supabase
+              .from("conversations")
+              .update({ late_conversation_id: echoedConversationId })
+              .eq("channel_id", channel.id)
+              .eq("contact_id", contact.contactId);
+          }
         } catch (fallbackErr) {
           console.error(`[automation ${automation.id}] fallback DM send also failed:`, fallbackErr);
         }
