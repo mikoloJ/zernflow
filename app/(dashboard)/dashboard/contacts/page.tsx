@@ -7,10 +7,15 @@ export default async function ContactsPage() {
   const [contactsRes, tagsRes] = await Promise.all([
     supabase
       .from("contacts")
-      .select("*, contact_tags(tag_id, tags(*))")
+      .select(
+        "*, contact_tags(tag_id, tags(*)), contact_channels(platform_sender_id, channel_id, channels(platform))"
+      )
       .eq("workspace_id", workspace.id)
       .order("last_interaction_at", { ascending: false, nullsFirst: false })
-      .limit(100),
+      // No plan-based contact cap exists in this build — this limit is just
+      // how many rows load into the initial table view, not a ceiling on
+      // how many contacts the workspace can have.
+      .limit(500),
     supabase
       .from("tags")
       .select("*")

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   Search,
@@ -11,6 +11,9 @@ import {
   XCircle,
   Filter,
   ChevronDown,
+  UserCheck,
+  Loader2,
+  X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -18,6 +21,7 @@ import {
   createEmptyFilter,
   type SegmentFilter,
 } from "@/components/segment-builder";
+import { PlatformIcon } from "@/components/platform-icon";
 import type { Database } from "@/lib/types/database";
 
 type Tag = Database["public"]["Tables"]["tags"]["Row"];
@@ -26,19 +30,41 @@ type ContactWithTags = Database["public"]["Tables"]["contacts"]["Row"] & {
     tag_id: string;
     tags: Tag | null;
   }[];
+  contact_channels: {
+    platform_sender_id: string;
+    channel_id: string;
+    channels: { platform: string } | null;
+  }[];
 };
 
+/** Relative label for the table cell, e.g. "Today · 3:42 PM", "Yesterday · 9:05 AM",
+ * or a full date for anything older — the exact instant is always in the label,
+ * never hidden behind "Today"/"Yesterday" alone. */
 function formatDate(dateStr: string | null): string {
   if (!dateStr) return "Never";
   const date = new Date(dateStr);
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
   const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  const time = date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 
-  if (diffDays === 0) return "Today";
-  if (diffDays === 1) return "Yesterday";
-  if (diffDays < 7) return `${diffDays}d ago`;
-  return date.toLocaleDateString([], { month: "short", day: "numeric" });
+  if (diffDays === 0) return `Today · ${time}`;
+  if (diffDays === 1) return `Yesterday · ${time}`;
+  if (diffDays < 7) return `${diffDays}d ago · ${time}`;
+  return `${date.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" })} · ${time}`;
+}
+
+/** Full precision, for the title/tooltip attribute. */
+function formatExactDate(dateStr: string | null): string {
+  if (!dateStr) return "Never interacted";
+  return new Date(dateStr).toLocaleString([], {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
 }
 
 export function ContactsView({
@@ -56,6 +82,58 @@ export function ContactsView({
   const [segmentFilter, setSegmentFilter] = useState<SegmentFilter>(
     createEmptyFilter()
   );
+  const [segmentContactIds, setSegmentContactIds] = useState<Set<string> | null>(
+    null
+  );
+  const [segmentLoading, setSegmentLoading] = useState(false);
+  const [segmentError, setSegmentError] = useState<string | null>(null);
+
+  // A rule counts as "active" once it has a value, or for fields (like
+  // "came in through an ad") that don't need one at all.
+  const isFilterActive = useMemo(
+    () =>
+      segmentFilter.groups.some((g) =>
+        g.rules.some((r) => r.value !== "" || r.field === "engaged_via_ad")
+      ),
+    [segmentFilter]
+  );
+
+  // Resolve the segment filter server-side (it can reach fields, like tags
+  // or follower status, that aren't loaded into this table) whenever it
+  // changes, debounced so typing a keyword doesn't fire on every keystroke.
+  useEffect(() => {
+    if (!isFilterActive) {
+      setSegmentContactIds(null);
+      setSegmentError(null);
+      return;
+    }
+    let cancelled = false;
+    setSegmentLoading(true);
+    setSegmentError(null);
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch("/api/v1/contacts/segment", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ filter: segmentFilter }),
+        });
+        const body = await res.json();
+        if (cancelled) return;
+        if (!res.ok) throw new Error(body.error || "Could not apply segment");
+        setSegmentContactIds(new Set(body.contactIds as string[]));
+      } catch (err) {
+        if (!cancelled) {
+          setSegmentError(err instanceof Error ? err.message : "Could not apply segment");
+        }
+      } finally {
+        if (!cancelled) setSegmentLoading(false);
+      }
+    }, 400);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [segmentFilter, isFilterActive]);
 
   const filtered = contacts.filter((contact) => {
     // Search filter
@@ -65,13 +143,15 @@ export function ContactsView({
       const email = contact.email?.toLowerCase() ?? "";
       if (!name.includes(q) && !email.includes(q)) return false;
     }
-    // Tag filter
+    // Tag filter (quick pills)
     if (selectedTagId) {
       const hasTag = contact.contact_tags.some(
         (ct) => ct.tag_id === selectedTagId
       );
       if (!hasTag) return false;
     }
+    // Segment builder filter
+    if (segmentContactIds && !segmentContactIds.has(contact.id)) return false;
     return true;
   });
 
@@ -83,7 +163,11 @@ export function ContactsView({
           <div>
             <h1 className="text-2xl font-bold">Contacts</h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              {contacts.length} contact{contacts.length !== 1 ? "s" : ""} in your workspace
+              {isFilterActive
+                ? segmentLoading
+                  ? "Applying segment…"
+                  : `${filtered.length} of ${contacts.length} contacts match`
+                : `${contacts.length} contact${contacts.length !== 1 ? "s" : ""} in your workspace`}
             </p>
           </div>
         </div>
@@ -104,13 +188,22 @@ export function ContactsView({
             onClick={() => setShowSegmentBuilder(!showSegmentBuilder)}
             className={cn(
               "inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition-colors",
-              showSegmentBuilder
+              showSegmentBuilder || isFilterActive
                 ? "border-primary bg-primary/10 text-primary"
                 : "border-input text-muted-foreground hover:bg-accent hover:text-foreground"
             )}
           >
-            <Filter className="h-4 w-4" />
+            {segmentLoading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Filter className="h-4 w-4" />
+            )}
             Segment
+            {isFilterActive && !segmentLoading && (
+              <span className="rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-semibold text-primary-foreground">
+                {segmentContactIds?.size ?? 0}
+              </span>
+            )}
             <ChevronDown
               className={cn(
                 "h-3.5 w-3.5 transition-transform",
@@ -118,6 +211,16 @@ export function ContactsView({
               )}
             />
           </button>
+          {isFilterActive && (
+            <button
+              type="button"
+              onClick={() => setSegmentFilter(createEmptyFilter())}
+              className="inline-flex items-center gap-1 rounded-lg px-2 py-2 text-xs font-medium text-muted-foreground hover:text-foreground"
+            >
+              <X className="h-3.5 w-3.5" />
+              Clear segment
+            </button>
+          )}
         </div>
 
         {/* Segment builder */}
@@ -128,6 +231,9 @@ export function ContactsView({
               onChange={setSegmentFilter}
               workspaceId={workspaceId}
             />
+            {segmentError && (
+              <p className="mt-2 text-xs text-destructive">{segmentError}</p>
+            )}
           </div>
         )}
 
@@ -196,6 +302,9 @@ export function ContactsView({
                   Email
                 </th>
                 <th className="px-4 py-3 text-xs font-medium uppercase text-muted-foreground">
+                  Platform
+                </th>
+                <th className="px-4 py-3 text-xs font-medium uppercase text-muted-foreground">
                   Last Interaction
                 </th>
                 <th className="px-4 py-3 text-xs font-medium uppercase text-muted-foreground">
@@ -252,7 +361,41 @@ export function ContactsView({
                       )}
                     </td>
                     <td className="px-4 py-3">
-                      <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                      {contact.contact_channels.length > 0 ? (
+                        <div className="flex items-center gap-1.5">
+                          {[
+                            ...new Set(
+                              contact.contact_channels
+                                .map((cc) => cc.channels?.platform)
+                                .filter(Boolean) as string[]
+                            ),
+                          ].map((platform) => (
+                            <span
+                              key={platform}
+                              title={platform}
+                              className="flex h-5 w-5 items-center justify-center rounded-full bg-muted"
+                            >
+                              <PlatformIcon platform={platform} className="h-3 w-3" size={12} />
+                            </span>
+                          ))}
+                          {contact.is_follower && (
+                            <span
+                              title="Follows your account"
+                              className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-50"
+                            >
+                              <UserCheck className="h-3 w-3 text-emerald-600" />
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-xs text-muted-foreground/50">—</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span
+                        title={formatExactDate(contact.last_interaction_at)}
+                        className="flex items-center gap-1.5 text-sm text-muted-foreground"
+                      >
                         <Calendar className="h-3 w-3" />
                         {formatDate(contact.last_interaction_at)}
                       </span>
