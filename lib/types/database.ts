@@ -704,6 +704,45 @@ export interface Database {
           },
         ];
       };
+      conversation_notes: {
+        Row: {
+          id: string;
+          workspace_id: string;
+          conversation_id: string;
+          author_id: string | null;
+          author_name: string | null;
+          text: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          workspace_id: string;
+          conversation_id: string;
+          author_id?: string | null;
+          author_name?: string | null;
+          text: string;
+          created_at?: string;
+        };
+        Update: {
+          text?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "conversation_notes_workspace_id_fkey";
+            columns: ["workspace_id"];
+            isOneToOne: false;
+            referencedRelation: "workspaces";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "conversation_notes_conversation_id_fkey";
+            columns: ["conversation_id"];
+            isOneToOne: false;
+            referencedRelation: "conversations";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       messages: {
         Row: {
           id: string;
