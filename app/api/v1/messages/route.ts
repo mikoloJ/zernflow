@@ -257,12 +257,17 @@ export async function POST(request: NextRequest) {
       status: "sent",
     });
 
-    // Update conversation's last message info (ZernFlow-specific metadata)
+    // Update conversation's last message info (ZernFlow-specific metadata).
+    // Clearing unread_count here too, not just via the webhook's outbound
+    // branch, is what makes this instant: waiting on Zernio to echo this
+    // same send back as a webhook event is an extra network round-trip the
+    // person sending the message shouldn't have to wait out.
     await supabase
       .from("conversations")
       .update({
         last_message_at: new Date().toISOString(),
         last_message_preview: messagePreview(text || (attachmentType === "image" ? "📷 Photo" : "📎 Attachment")),
+        unread_count: 0,
       })
       .eq("id", conversationId);
 
