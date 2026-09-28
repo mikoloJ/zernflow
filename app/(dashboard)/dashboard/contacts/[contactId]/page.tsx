@@ -10,6 +10,7 @@ import {
   MessageSquare,
 } from "lucide-react";
 import { PlatformIcon } from "@/components/platform-icon";
+import { FollowerStatus } from "@/components/contacts/follower-status";
 
 export default async function ContactDetailPage({
   params,
@@ -150,6 +151,17 @@ export default async function ContactDetailPage({
             <h2 className="mb-3 text-sm font-semibold uppercase text-muted-foreground">
               Connected Channels
             </h2>
+            {channels.some(
+              (cc) => (cc.channels as { platform?: string } | null)?.platform === "instagram"
+            ) && (
+              <div className="mb-3">
+                <FollowerStatus
+                  contactId={contact.id}
+                  isFollower={contact.is_follower}
+                  checkedAt={contact.follower_checked_at}
+                />
+              </div>
+            )}
             {channels.length === 0 ? (
               <p className="text-sm text-muted-foreground/60">No channels</p>
             ) : (
