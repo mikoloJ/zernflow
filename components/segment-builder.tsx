@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 import type { Database } from "@/lib/types/database";
 import { PLATFORMS, PLATFORM_LABELS } from "@/lib/platforms";
+import { PostPicker } from "@/components/flow-builder/panels/PostPicker";
 
 type Tag = Database["public"]["Tables"]["tags"]["Row"];
 type CustomFieldDef =
@@ -28,6 +29,10 @@ export type FilterField =
   | "custom_field"
   | "platform"
   | "is_subscribed"
+  | "is_follower"
+  | "engaged_via_ad"
+  | "commented_on_post"
+  | "commented_keyword"
   | "last_interaction";
 
 export interface FilterRule {
@@ -55,7 +60,7 @@ const fieldConfig: Record<
   {
     label: string;
     operators: { value: FilterOperator; label: string }[];
-    valueType: "tag" | "custom_field" | "platform" | "boolean" | "date" | "text";
+    valueType: "tag" | "custom_field" | "platform" | "boolean" | "date" | "text" | "post" | "none";
   }
 > = {
   has_tag: {
@@ -91,6 +96,29 @@ const fieldConfig: Record<
     label: "Subscribed",
     operators: [{ value: "equals", label: "is" }],
     valueType: "boolean",
+  },
+  is_follower: {
+    label: "Follows your account",
+    operators: [{ value: "equals", label: "is" }],
+    valueType: "boolean",
+  },
+  engaged_via_ad: {
+    label: "Came in through an ad",
+    operators: [
+      { value: "equals", label: "yes" },
+      { value: "not_equals", label: "no" },
+    ],
+    valueType: "none",
+  },
+  commented_on_post: {
+    label: "Commented on post",
+    operators: [{ value: "equals", label: "is" }],
+    valueType: "post",
+  },
+  commented_keyword: {
+    label: "Commented keyword",
+    operators: [{ value: "contains", label: "contains" }],
+    valueType: "text",
   },
   last_interaction: {
     label: "Last interaction",
@@ -281,6 +309,18 @@ function FilterRuleRow({
             className="rounded-lg border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
           />
         );
+      case "post":
+        return (
+          <div className="w-full min-w-[220px]">
+            <PostPicker
+              value={rule.value ? [rule.value] : []}
+              onChange={(ids) => onChange({ ...rule, value: ids[0] ?? "" })}
+              gridOnly
+            />
+          </div>
+        );
+      case "none":
+        return null;
       default:
         return (
           <input
