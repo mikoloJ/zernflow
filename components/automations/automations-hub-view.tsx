@@ -15,11 +15,14 @@ import {
   Pencil,
   Trash2,
   Zap,
+  BarChart3,
+  Copy,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 import { PlatformIcon } from "@/components/platform-icon";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { AutomationInsightsDialog } from "@/components/automations/automation-insights-dialog";
 import type { FlowStatus } from "@/lib/types/database";
 
 type FlowRow = {
@@ -110,6 +113,9 @@ export function AutomationsHubView({
   const [savingFolder, setSavingFolder] = useState(false);
   const [deleteFolderTarget, setDeleteFolderTarget] = useState<Folder_ | null>(null);
   const [busyItemId, setBusyItemId] = useState<string | null>(null);
+  const [insightsTarget, setInsightsTarget] = useState<HubItem | null>(null);
+  const [deleteItemTarget, setDeleteItemTarget] = useState<HubItem | null>(null);
+  const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
 
   const channelById = useMemo(() => new Map(channels.map((c) => [c.id, c])), [channels]);
 
@@ -244,6 +250,63 @@ export function AutomationsHubView({
     } finally {
       setCreatingFlow(false);
       setNewAutomationOpen(false);
+    }
+  }
+
+  async function handleDuplicate(item: HubItem) {
+    if (duplicatingId) return;
+    setDuplicatingId(item.id);
+    try {
+      if (item.kind === "flow") {
+        const res = await fetch(`/api/v1/flows/${item.id}/duplicate`, { method: "POST" });
+        if (!res.ok) throw new Error("Failed to duplicate flow");
+      } else {
+        const { data: original, error: fetchError } = await supabase
+          .from("comment_automations")
+          .select("name, channel_id, folder_id, config")
+          .eq("id", item.id)
+          .single();
+        if (fetchError || !original) throw fetchError || new Error("Automation not found");
+        const { error: insertError } = await supabase.from("comment_automations").insert({
+          workspace_id: workspaceId,
+          name: `${original.name} (copy)`,
+          channel_id: original.channel_id,
+          folder_id: original.folder_id,
+          config: original.config,
+          // Duplicates start paused so you don't end up with two live
+          // automations matching the same comments until you're ready.
+          is_active: false,
+        });
+        if (insertError) throw insertError;
+      }
+      router.refresh();
+    } catch (err) {
+      console.error("Failed to duplicate automation:", err);
+      alert("Failed to duplicate. Please try again.");
+    } finally {
+      setDuplicatingId(null);
+    }
+  }
+
+  async function handleDeleteItem() {
+    if (!deleteItemTarget) return;
+    const item = deleteItemTarget;
+    setDeleteItemTarget(null);
+    setBusyItemId(item.id);
+    try {
+      if (item.kind === "flow") {
+        const res = await fetch(`/api/v1/flows/${item.id}`, { method: "DELETE" });
+        if (!res.ok) throw new Error("Failed to delete flow");
+      } else {
+        const { error } = await supabase.from("comment_automations").delete().eq("id", item.id);
+        if (error) throw error;
+      }
+      router.refresh();
+    } catch (err) {
+      console.error("Failed to delete automation:", err);
+      alert("Failed to delete. Please try again.");
+    } finally {
+      setBusyItemId(null);
     }
   }
 
@@ -410,6 +473,7 @@ export function AutomationsHubView({
                     <th className="px-4 py-2.5 text-left font-medium">Stats</th>
                     <th className="px-4 py-2.5 text-left font-medium">Updated</th>
                     <th className="px-4 py-2.5 text-left font-medium">Folder</th>
+                    <th className="px-4 py-2.5 text-right font-medium">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
@@ -459,6 +523,44 @@ export function AutomationsHubView({
                               </option>
                             ))}
                           </select>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center justify-end gap-1">
+                            {item.kind === "comment" ? (
+                              <button
+                                onClick={() => setInsightsTarget(item)}
+                                title="Insights"
+                                aria-label={`Insights for ${item.name}`}
+                                className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                              >
+                                <BarChart3 className="h-3.5 w-3.5" />
+                              </button>
+                            ) : (
+                              <span className="h-3.5 w-3.5 p-1.5" />
+                            )}
+                            <button
+                              onClick={() => handleDuplicate(item)}
+                              disabled={duplicatingId === item.id}
+                              title="Duplicate"
+                              aria-label={`Duplicate ${item.name}`}
+                              className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
+                            >
+                              {duplicatingId === item.id ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <Copy className="h-3.5 w-3.5" />
+                              )}
+                            </button>
+                            <button
+                              onClick={() => setDeleteItemTarget(item)}
+                              disabled={busyItemId === item.id}
+                              title="Delete"
+                              aria-label={`Delete ${item.name}`}
+                              className="rounded-md p-1.5 text-muted-foreground hover:bg-red-50 hover:text-red-600 disabled:opacity-50 dark:hover:bg-red-900/20 dark:hover:text-red-400"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -514,6 +616,28 @@ export function AutomationsHubView({
         onConfirm={handleDeleteFolder}
         onCancel={() => setDeleteFolderTarget(null)}
       />
+
+      <ConfirmDialog
+        open={!!deleteItemTarget}
+        title={`Delete "${deleteItemTarget?.name}"?`}
+        message={
+          deleteItemTarget?.kind === "flow"
+            ? "This flow and its triggers will be permanently deleted. This can't be undone."
+            : "This comment automation will be permanently deleted, along with its saved settings. This can't be undone."
+        }
+        confirmLabel="Delete"
+        destructive
+        onConfirm={handleDeleteItem}
+        onCancel={() => setDeleteItemTarget(null)}
+      />
+
+      {insightsTarget && (
+        <AutomationInsightsDialog
+          automationId={insightsTarget.id}
+          automationName={insightsTarget.name}
+          onClose={() => setInsightsTarget(null)}
+        />
+      )}
     </div>
   );
 }
