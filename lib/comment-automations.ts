@@ -91,17 +91,17 @@ export async function runCommentAutomations({
 
   // Contact, so commenters land in Contacts for later broadcasts.
   const senderName = comment.author.name || comment.author.username || "Instagram user";
-  if (comment.author.id) {
-    await upsertContactForSender({
-      supabase,
-      channel,
-      senderId: comment.author.id,
-      senderName,
-      senderPicture: null,
-      senderUsername: comment.author.username || null,
-      interactionAt: new Date().toISOString(),
-    });
-  }
+  const contact = comment.author.id
+    ? await upsertContactForSender({
+        supabase,
+        channel,
+        senderId: comment.author.id,
+        senderName,
+        senderPicture: null,
+        senderUsername: comment.author.username || null,
+        interactionAt: new Date().toISOString(),
+      })
+    : null;
 
   const firstName = (comment.author.name || comment.author.username || "").split(/\s+/)[0] || "there";
   const vars = {
@@ -114,41 +114,68 @@ export async function runCommentAutomations({
   // Private reply first: Meta allows exactly one per comment, and it's what matters.
   let dmSent = false;
   let error: string | undefined;
+  const usingOpeningDm = config.openingDm.enabled && config.openingDm.text.trim().length > 0;
+  const dmMessage = usingOpeningDm ? interpolate(config.openingDm.text, vars) : interpolate(config.linkDm.text, vars);
+  const dmButtons = usingOpeningDm
+    ? [
+        {
+          type: "postback",
+          title: (config.openingDm.buttonLabel || "Send it!").slice(0, 20),
+          payload: buttonPayload(automation.id),
+        },
+      ]
+    : validLinkButtons(config.linkDm.buttons);
   try {
-    if (config.openingDm.enabled && config.openingDm.text.trim()) {
-      await zernio.comments.sendPrivateReplyToComment({
-        path: { postId: comment.postId, commentId: comment.id },
-        body: {
-          accountId: channel.late_account_id,
-          message: interpolate(config.openingDm.text, vars),
-          buttons: [
-            {
-              type: "postback",
-              title: (config.openingDm.buttonLabel || "Send it!").slice(0, 20),
-              payload: buttonPayload(automation.id),
-            },
-          ],
-        } as never,
-        throwOnError: true,
-      });
-      await bump(supabase, automation.id, "opening_dms_sent");
-    } else {
-      const buttons = validLinkButtons(config.linkDm.buttons);
-      await zernio.comments.sendPrivateReplyToComment({
-        path: { postId: comment.postId, commentId: comment.id },
-        body: {
-          accountId: channel.late_account_id,
-          message: interpolate(config.linkDm.text, vars),
-          ...(buttons.length ? { buttons } : {}),
-        } as never,
-        throwOnError: true,
-      });
-      await bump(supabase, automation.id, "link_dms_sent");
-    }
+    await zernio.comments.sendPrivateReplyToComment({
+      path: { postId: comment.postId, commentId: comment.id },
+      body: {
+        accountId: channel.late_account_id,
+        message: dmMessage,
+        ...(dmButtons.length ? { buttons: dmButtons } : {}),
+      } as never,
+      throwOnError: true,
+    });
+    await bump(supabase, automation.id, usingOpeningDm ? "opening_dms_sent" : "link_dms_sent");
     dmSent = true;
   } catch (err) {
     error = err instanceof Error ? err.message : String(err);
     console.error(`[automation ${automation.id}] private reply failed:`, err);
+
+    // Meta's private-reply endpoint allows exactly one reply per comment,
+    // ever — a real platform limit, not a bug here. It fires when the same
+    // person comments more than once (their first comment already used up
+    // this thread's one shot). When that happens they usually already have
+    // an open conversation from the earlier send, so fall back to a normal
+    // inbox message on that conversation rather than silently dropping the
+    // DM the automation promised.
+    if (contact && /private reply|one private reply per comment/i.test(error)) {
+      const { data: existingConversation } = await supabase
+        .from("conversations")
+        .select("late_conversation_id")
+        .eq("channel_id", channel.id)
+        .eq("contact_id", contact.contactId)
+        .not("late_conversation_id", "is", null)
+        .maybeSingle();
+
+      if (existingConversation?.late_conversation_id) {
+        try {
+          await zernio.messages.sendInboxMessage({
+            path: { conversationId: existingConversation.late_conversation_id },
+            body: {
+              accountId: channel.late_account_id,
+              message: dmMessage,
+              ...(dmButtons.length ? { buttons: dmButtons } : {}),
+            } as never,
+            throwOnError: true,
+          });
+          await bump(supabase, automation.id, usingOpeningDm ? "opening_dms_sent" : "link_dms_sent");
+          dmSent = true;
+          error = undefined;
+        } catch (fallbackErr) {
+          console.error(`[automation ${automation.id}] fallback DM send also failed:`, fallbackErr);
+        }
+      }
+    }
   }
 
   let replySent = false;
