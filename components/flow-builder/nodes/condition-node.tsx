@@ -3,6 +3,7 @@
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { GitBranch } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useHandleConnected } from "./use-handle-connected";
 
 export interface ConditionNodeProps {
   label?: string;
@@ -28,6 +29,8 @@ export function ConditionNode({ data, selected }: NodeProps) {
   const label = nodeData.label || "Condition";
   const conditions = nodeData.conditions || [];
   const logic = nodeData.logic || "and";
+  const trueConnected = useHandleConnected("true");
+  const falseConnected = useHandleConnected("false");
 
   return (
     <div
@@ -75,19 +78,30 @@ export function ConditionNode({ data, selected }: NodeProps) {
         </span>
         <span className="text-[10px] font-medium text-red-500">No</span>
       </div>
+      {/* Handle ids must be "true"/"false" — that's what engine.ts and the
+          simulator look for (evaluateCondition returns "handle:true"/"handle:false").
+          Using anything else (e.g. "yes"/"no") means a condition branch drawn
+          in the canvas would never be found at runtime and the flow would
+          just dead-end after the condition. */}
       <Handle
         type="source"
         position={Position.Bottom}
-        id="yes"
+        id="true"
         style={{ left: "30%" }}
-        className="!h-3 !w-3 !border-2 !border-emerald-500 !bg-white"
+        className={cn(
+          "!h-3 !w-3 !border-2 !border-emerald-500 !transition-colors",
+          trueConnected ? "!bg-emerald-500" : "!bg-white"
+        )}
       />
       <Handle
         type="source"
         position={Position.Bottom}
-        id="no"
+        id="false"
         style={{ left: "70%" }}
-        className="!h-3 !w-3 !border-2 !border-red-500 !bg-white"
+        className={cn(
+          "!h-3 !w-3 !border-2 !border-red-500 !transition-colors",
+          falseConnected ? "!bg-red-500" : "!bg-white"
+        )}
       />
     </div>
   );
