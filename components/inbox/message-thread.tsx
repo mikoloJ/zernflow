@@ -19,6 +19,11 @@ import {
   X,
   AlertCircle,
   Reply,
+  Smile,
+  Image as ImageIcon,
+  Mic,
+  Star,
+  StickyNote,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
@@ -30,6 +35,14 @@ import type { InboxAttachment, InboxMessage } from "@/lib/inbox-messages";
 type Conversation = Database["public"]["Tables"]["conversations"]["Row"] & {
   contacts: Database["public"]["Tables"]["contacts"]["Row"] | null;
 };
+
+interface ConversationNote {
+  id: string;
+  conversation_id: string;
+  author_name: string | null;
+  text: string;
+  created_at: string;
+}
 
 interface Profile {
   name: string | null;
@@ -81,6 +94,17 @@ function formatDateSeparator(dateStr: string): string {
 function formatCount(n: number) {
   return n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(1)}K` : String(n);
 }
+
+function platformLabel(platform: string): string {
+  return platform.charAt(0).toUpperCase() + platform.slice(1);
+}
+
+/**
+ * A small fixed set rather than a full picker (search, recents, categories,
+ * skin tones) — that's a bigger piece of surface area than this composer
+ * redesign covers.
+ */
+const QUICK_EMOJIS = ["😀", "😂", "❤️", "👍", "🙏", "🔥", "🎉", "😢", "👏", "😍", "😅", "🤔"];
 
 function Attachment({ a, outbound }: { a: InboxAttachment; outbound: boolean }) {
   const src = a.url ?? a.previewUrl ?? undefined;
@@ -300,6 +324,39 @@ function MessageBubble({
   );
 }
 
+function EmojiPopover({ onPick, onClose }: { onPick: (emoji: string) => void; onClose: () => void }) {
+  return (
+    <>
+      <div className="fixed inset-0 z-10" onClick={onClose} />
+      <div className="absolute bottom-full left-0 z-20 mb-1 grid grid-cols-6 gap-0.5 rounded-lg border border-border bg-popover p-1.5 shadow-lg">
+        {QUICK_EMOJIS.map((emoji) => (
+          <button
+            key={emoji}
+            onClick={() => onPick(emoji)}
+            className="flex h-7 w-7 items-center justify-center rounded text-base hover:bg-muted"
+          >
+            {emoji}
+          </button>
+        ))}
+      </div>
+    </>
+  );
+}
+
+function NoteBlock({ note }: { note: ConversationNote }) {
+  return (
+    <div className="mx-auto flex max-w-[85%] items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs dark:border-amber-900/50 dark:bg-amber-950/30">
+      <StickyNote className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-amber-700 dark:text-amber-400" />
+      <div className="min-w-0">
+        <p className="whitespace-pre-wrap break-words text-amber-900 dark:text-amber-200">{note.text}</p>
+        <p className="mt-0.5 text-[10px] text-amber-700/70 dark:text-amber-400/70">
+          {note.author_name || "Teammate"} · {formatMessageTime(note.created_at)}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function AdBanner({ ad }: { ad: NonNullable<Profile["ad"]> }) {
   const link = ad.postUrl ?? ad.sourceUrl;
   return (
@@ -346,8 +403,14 @@ export function MessageThread({
   const [statusUpdating, setStatusUpdating] = useState<string | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [pendingFile, setPendingFile] = useState<{ file: File; preview: string | null } | null>(null);
+  const [composerTab, setComposerTab] = useState<"reply" | "note">("reply");
+  const [notes, setNotes] = useState<ConversationNote[]>([]);
+  const [noteInput, setNoteInput] = useState("");
+  const [noteSending, setNoteSending] = useState(false);
+  const [emojiOpen, setEmojiOpen] = useState<"reply" | "note" | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const noteTextareaRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const contactName = profile?.name || conversation?.contacts?.display_name || "Unknown";
@@ -417,6 +480,23 @@ export function MessageThread({
     };
   }, [conversation?.id]);
 
+  // Internal team notes (never sent to the contact) for the Note tab / inline note cards.
+  useEffect(() => {
+    setNotes([]);
+    setComposerTab("reply");
+    if (!conversation) return;
+    let cancelled = false;
+    fetch(`/api/v1/conversations/${conversation.id}/notes`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((rows: ConversationNote[]) => {
+        if (!cancelled) setNotes(rows);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [conversation?.id]);
+
   // New activity on the conversation -> re-fetch messages from Zernio.
   useEffect(() => {
     if (!conversation) return;
@@ -474,7 +554,7 @@ export function MessageThread({
     return { url: data.publicUrl, type };
   }
 
-  async function handleSend() {
+  async function handleSend(opts?: { andClose?: boolean }) {
     if ((!input.trim() && !pendingFile) || !conversation || sending) return;
 
     const text = input.trim();
@@ -526,6 +606,7 @@ export function MessageThread({
       }
       const confirmed: InboxMessage = await res.json();
       setMessages((prev) => prev.map((m) => (m.id === optimisticId ? confirmed : m)));
+      if (opts?.andClose) await updateConversationStatus("closed");
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Send failed";
       setSendError(msg);
@@ -541,6 +622,30 @@ export function MessageThread({
     }
   }
 
+  async function handleAddNote() {
+    const text = noteInput.trim();
+    if (!text || !conversation || noteSending) return;
+    setNoteSending(true);
+    try {
+      const res = await fetch(`/api/v1/conversations/${conversation.id}/notes`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.error || `Failed to add note (${res.status})`);
+      }
+      const note: ConversationNote = await res.json();
+      setNotes((prev) => [...prev, note]);
+      setNoteInput("");
+    } catch (err) {
+      setSendError(err instanceof Error ? err.message : "Failed to add note");
+    } finally {
+      setNoteSending(false);
+    }
+  }
+
   if (!conversation) {
     return (
       <div className="flex h-full flex-col items-center justify-center bg-background text-center">
@@ -552,6 +657,12 @@ export function MessageThread({
   }
 
   const lastOutboundId = [...messages].reverse().find((m) => m.direction === "outbound")?.id;
+
+  type TimelineItem = { kind: "message"; created_at: string; message: InboxMessage } | { kind: "note"; created_at: string; note: ConversationNote };
+  const timeline: TimelineItem[] = [
+    ...messages.map((message): TimelineItem => ({ kind: "message", created_at: message.created_at, message })),
+    ...notes.map((note): TimelineItem => ({ kind: "note", created_at: note.created_at, note })),
+  ].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
 
   return (
     <div className="flex h-full flex-col bg-background">
@@ -644,29 +755,40 @@ export function MessageThread({
       <div className="flex-1 overflow-y-auto p-4">
         <div className="mx-auto max-w-2xl">
           {ad && <AdBanner ad={ad} />}
-          {messages.length === 0 && <p className="py-10 text-center text-sm text-muted-foreground">No messages in this conversation yet.</p>}
-          {messages.map((message, i) => {
-            const prev = messages[i - 1];
-            const next = messages[i + 1];
-            const newDay = !prev || new Date(prev.created_at).toDateString() !== new Date(message.created_at).toDateString();
-            const groupedWithPrev = !!prev && !newDay && prev.direction === message.direction;
-            const lastInGroup = !next || next.direction !== message.direction || new Date(next.created_at).toDateString() !== new Date(message.created_at).toDateString();
+          {timeline.length === 0 && <p className="py-10 text-center text-sm text-muted-foreground">No messages in this conversation yet.</p>}
+          {timeline.map((item, i) => {
+            const prev = timeline[i - 1];
+            const next = timeline[i + 1];
+            const newDay = !prev || new Date(prev.created_at).toDateString() !== new Date(item.created_at).toDateString();
+            const groupedWithPrev =
+              !!prev && !newDay && prev.kind === "message" && item.kind === "message" && prev.message.direction === item.message.direction;
+            const lastInGroup =
+              item.kind !== "message" ||
+              !next ||
+              next.kind !== "message" ||
+              next.message.direction !== item.message.direction ||
+              new Date(next.created_at).toDateString() !== new Date(item.created_at).toDateString();
+            const key = item.kind === "message" ? item.message.id : `note-${item.note.id}`;
             return (
-              <div key={message.id} className={groupedWithPrev ? "mt-1" : "mt-4"}>
+              <div key={key} className={groupedWithPrev ? "mt-1" : "mt-4"}>
                 {newDay && (
                   <div className="my-4 flex items-center gap-3">
                     <div className="h-px flex-1 bg-border" />
-                    <span className="text-[11px] text-muted-foreground">{formatDateSeparator(message.created_at)}</span>
+                    <span className="text-[11px] text-muted-foreground">{formatDateSeparator(item.created_at)}</span>
                     <div className="h-px flex-1 bg-border" />
                   </div>
                 )}
-                <MessageBubble
-                  message={message}
-                  contactName={contactName}
-                  contactPicture={contactPicture}
-                  showAvatar={lastInGroup}
-                  showStatus={message.id === lastOutboundId}
-                />
+                {item.kind === "note" ? (
+                  <NoteBlock note={item.note} />
+                ) : (
+                  <MessageBubble
+                    message={item.message}
+                    contactName={contactName}
+                    contactPicture={contactPicture}
+                    showAvatar={lastInGroup}
+                    showStatus={item.message.id === lastOutboundId}
+                  />
+                )}
               </div>
             );
           })}
@@ -675,10 +797,33 @@ export function MessageThread({
       </div>
 
       {/* Composer */}
-      <div className="border-t border-border p-4">
-        <div className="mx-auto max-w-2xl">
+      <div className="border-t border-border">
+        <div className="mx-auto max-w-2xl px-4">
+          <div className="flex items-center gap-5 border-b border-border">
+            <button
+              onClick={() => setComposerTab("reply")}
+              className={cn(
+                "relative py-2.5 text-sm font-medium transition-colors",
+                composerTab === "reply" ? "text-foreground" : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              Reply
+              {composerTab === "reply" && <span className="absolute inset-x-0 -bottom-px h-0.5 bg-[#3797F0]" />}
+            </button>
+            <button
+              onClick={() => setComposerTab("note")}
+              className={cn(
+                "relative py-2.5 text-sm font-medium transition-colors",
+                composerTab === "note" ? "text-amber-700 dark:text-amber-400" : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              Note
+              {composerTab === "note" && <span className="absolute inset-x-0 -bottom-px h-0.5 bg-amber-500" />}
+            </button>
+          </div>
+
           {sendError && (
-            <div className="mb-2 flex items-start gap-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700 dark:bg-red-950/40 dark:text-red-300">
+            <div className="mt-2 flex items-start gap-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700 dark:bg-red-950/40 dark:text-red-300">
               <AlertCircle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
               <span className="flex-1">{sendError}</span>
               <button onClick={() => setSendError(null)} aria-label="Dismiss">
@@ -686,31 +831,25 @@ export function MessageThread({
               </button>
             </div>
           )}
-          {pendingFile && (
-            <div className="mb-2 inline-flex items-center gap-2 rounded-lg border border-border bg-muted/50 p-1.5 pr-2 text-xs">
-              {pendingFile.preview ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={pendingFile.preview} alt="" className="h-12 w-12 rounded object-cover" />
-              ) : (
-                <FileText className="h-5 w-5" />
+
+          <input ref={fileRef} type="file" accept="image/*,video/*,audio/*,application/pdf" className="hidden" onChange={pickFile} />
+
+          {composerTab === "reply" ? (
+            <div className="py-3">
+              {pendingFile && (
+                <div className="mb-2 inline-flex items-center gap-2 rounded-lg border border-border bg-muted/50 p-1.5 pr-2 text-xs">
+                  {pendingFile.preview ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={pendingFile.preview} alt="" className="h-12 w-12 rounded object-cover" />
+                  ) : (
+                    <FileText className="h-5 w-5" />
+                  )}
+                  <span className="max-w-[200px] truncate">{pendingFile.file.name}</span>
+                  <button onClick={() => setPendingFile(null)} aria-label="Remove attachment" className="rounded p-0.5 hover:bg-muted">
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
               )}
-              <span className="max-w-[200px] truncate">{pendingFile.file.name}</span>
-              <button onClick={() => setPendingFile(null)} aria-label="Remove attachment" className="rounded p-0.5 hover:bg-muted">
-                <X className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          )}
-          <div className="flex items-end gap-2">
-            <input ref={fileRef} type="file" accept="image/*,video/*,audio/*,application/pdf" className="hidden" onChange={pickFile} />
-            <button
-              onClick={() => fileRef.current?.click()}
-              aria-label="Attach a file"
-              title="Attach image, video or file"
-              className="flex h-10 w-10 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
-            >
-              <Paperclip className="h-4 w-4" />
-            </button>
-            <div className="flex-1">
               <textarea
                 ref={textareaRef}
                 value={input}
@@ -724,24 +863,161 @@ export function MessageThread({
                     handleSend();
                   }
                 }}
-                placeholder="Message…"
-                rows={1}
-                className="w-full resize-none rounded-full border border-input bg-background px-4 py-2.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                placeholder="Reply here"
+                rows={2}
+                className="w-full resize-none border-0 bg-transparent p-0 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-0"
                 style={{ maxHeight: 150 }}
               />
+              <div className="mt-2 flex items-center justify-between">
+                <div className="flex items-center gap-1 text-muted-foreground">
+                  <button
+                    onClick={() => fileRef.current?.click()}
+                    aria-label="Attach an image"
+                    title="Attach an image"
+                    className="flex h-8 w-8 items-center justify-center rounded-md hover:bg-muted hover:text-foreground"
+                  >
+                    <ImageIcon className="h-4 w-4" />
+                  </button>
+                  <button
+                    onClick={() => fileRef.current?.click()}
+                    aria-label="Attach a file"
+                    title="Attach a file"
+                    className="flex h-8 w-8 items-center justify-center rounded-md hover:bg-muted hover:text-foreground"
+                  >
+                    <Paperclip className="h-4 w-4" />
+                  </button>
+                  <button
+                    onClick={() => fileRef.current?.click()}
+                    aria-label="Attach a voice message"
+                    title="Attach a voice message"
+                    className="flex h-8 w-8 items-center justify-center rounded-md hover:bg-muted hover:text-foreground"
+                  >
+                    <Mic className="h-4 w-4" />
+                  </button>
+                  <div className="relative">
+                    <button
+                      onClick={() => setEmojiOpen(emojiOpen === "reply" ? null : "reply")}
+                      aria-label="Insert an emoji"
+                      title="Emoji"
+                      className="flex h-8 w-8 items-center justify-center rounded-md hover:bg-muted hover:text-foreground"
+                    >
+                      <Smile className="h-4 w-4" />
+                    </button>
+                    {emojiOpen === "reply" && (
+                      <EmojiPopover
+                        onPick={(emoji) => {
+                          setInput((prev) => prev + emoji);
+                          setEmojiOpen(null);
+                          requestAnimationFrame(() => {
+                            textareaRef.current?.focus();
+                            autoResize();
+                          });
+                        }}
+                        onClose={() => setEmojiOpen(null)}
+                      />
+                    )}
+                  </div>
+                  <button
+                    disabled
+                    aria-label="Saved replies"
+                    title="Saved replies — coming soon"
+                    className="flex h-8 w-8 cursor-not-allowed items-center justify-center rounded-md opacity-40"
+                  >
+                    <Star className="h-4 w-4" />
+                  </button>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => handleSend({ andClose: true })}
+                    disabled={(!input.trim() && !pendingFile) || sending}
+                    className="rounded-md border border-input bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted disabled:opacity-50"
+                  >
+                    Send & Close
+                  </button>
+                  <button
+                    onClick={() => handleSend()}
+                    disabled={(!input.trim() && !pendingFile) || sending}
+                    className={cn(
+                      "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+                      (input.trim() || pendingFile) && !sending ? "bg-[#3797F0] text-white hover:opacity-90" : "bg-muted text-muted-foreground",
+                    )}
+                  >
+                    {sending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                    Send to {platformLabel(conversation.platform)}
+                  </button>
+                </div>
+              </div>
             </div>
-            <button
-              onClick={handleSend}
-              disabled={(!input.trim() && !pendingFile) || sending}
-              aria-label="Send message"
-              className={cn(
-                "flex h-10 w-10 items-center justify-center rounded-full transition-colors",
-                (input.trim() || pendingFile) && !sending ? "bg-[#3797F0] text-white hover:opacity-90" : "bg-muted text-muted-foreground",
-              )}
-            >
-              {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-            </button>
-          </div>
+          ) : (
+            <div className="-mx-4 bg-amber-50/60 px-4 py-3 dark:bg-amber-950/10">
+              <textarea
+                ref={noteTextareaRef}
+                value={noteInput}
+                onChange={(e) => setNoteInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    handleAddNote();
+                  }
+                }}
+                placeholder="Leave a note for your teammates or reminder for yourself"
+                rows={2}
+                className="w-full resize-none border-0 bg-transparent p-0 text-sm placeholder:text-amber-700/60 focus:outline-none focus:ring-0 dark:placeholder:text-amber-400/50"
+                style={{ maxHeight: 150 }}
+              />
+              <div className="mt-2 flex items-center justify-between">
+                <div className="flex items-center gap-1 text-amber-700/70 dark:text-amber-400/60">
+                  <button
+                    onClick={() => fileRef.current?.click()}
+                    aria-label="Attach an image"
+                    title="Attach an image"
+                    className="flex h-8 w-8 items-center justify-center rounded-md hover:bg-amber-100 hover:text-amber-900 dark:hover:bg-amber-900/30"
+                  >
+                    <ImageIcon className="h-4 w-4" />
+                  </button>
+                  <button
+                    onClick={() => fileRef.current?.click()}
+                    aria-label="Attach a file"
+                    title="Attach a file"
+                    className="flex h-8 w-8 items-center justify-center rounded-md hover:bg-amber-100 hover:text-amber-900 dark:hover:bg-amber-900/30"
+                  >
+                    <Paperclip className="h-4 w-4" />
+                  </button>
+                  <div className="relative">
+                    <button
+                      onClick={() => setEmojiOpen(emojiOpen === "note" ? null : "note")}
+                      aria-label="Insert an emoji"
+                      title="Emoji"
+                      className="flex h-8 w-8 items-center justify-center rounded-md hover:bg-amber-100 hover:text-amber-900 dark:hover:bg-amber-900/30"
+                    >
+                      <Smile className="h-4 w-4" />
+                    </button>
+                    {emojiOpen === "note" && (
+                      <EmojiPopover
+                        onPick={(emoji) => {
+                          setNoteInput((prev) => prev + emoji);
+                          setEmojiOpen(null);
+                          requestAnimationFrame(() => noteTextareaRef.current?.focus());
+                        }}
+                        onClose={() => setEmojiOpen(null)}
+                      />
+                    )}
+                  </div>
+                </div>
+                <button
+                  onClick={handleAddNote}
+                  disabled={!noteInput.trim() || noteSending}
+                  className={cn(
+                    "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+                    noteInput.trim() && !noteSending ? "bg-[#3797F0] text-white hover:opacity-90" : "bg-muted text-muted-foreground",
+                  )}
+                >
+                  {noteSending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  Add Note
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
