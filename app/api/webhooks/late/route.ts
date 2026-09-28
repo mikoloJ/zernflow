@@ -265,8 +265,17 @@ async function processMessageEvent(
 
   const preview = messagePreview(msg.text);
 
-  // An outbound reply (sent from the real app) means the operator is caught
-  // up on this thread, so it clears unread rather than adding to it.
+  // An outbound reply (sent from the real app, a flow, or this tool's own
+  // composer) means the operator is caught up on this thread, so it clears
+  // unread. For inbound, unread_count is deliberately left out of this
+  // upsert — the increment_unread RPC below is the ONLY thing that touches
+  // it for inbound, doing a real `+1` against whatever is already there (0
+  // for a brand-new row, via the column default). Setting it here too, on
+  // top of that RPC, was double-counting every inbound message from a
+  // returning contact: this upsert forced it to 1, then the RPC added
+  // another 1, so unread was permanently stuck showing 2 (or more, for a
+  // burst of messages — each one reset-then-incremented instead of
+  // accumulating) regardless of how many messages were actually unread.
   const { data: conversation } = await supabase
     .from("conversations")
     .upsert(
@@ -279,7 +288,7 @@ async function processMessageEvent(
         status: "open",
         last_message_at: new Date().toISOString(),
         last_message_preview: preview,
-        unread_count: isOutbound ? 0 : 1,
+        ...(isOutbound ? { unread_count: 0 } : {}),
       },
       { onConflict: "channel_id,contact_id" }
     )
@@ -335,14 +344,16 @@ async function processMessageEvent(
       .is("source", null);
   }
 
-  if (contact.existed) {
-    await supabase
-      .rpc("increment_unread", {
-        conv_id: conversation.id,
-        preview,
-      })
-      .then(() => {});
-  }
+  // The sole place unread_count is touched for an inbound message (see the
+  // upsert above) — runs for a brand-new contact too, so its first-ever
+  // message correctly goes from the column's default of 0 to 1, same as any
+  // later one goes from N to N+1.
+  await supabase
+    .rpc("increment_unread", {
+      conv_id: conversation.id,
+      preview,
+    })
+    .then(() => {});
 
   // Messages themselves are still Zernio's source of truth for the inbox
   // (fetched live from its API), but we mirror the text locally, purely so
