@@ -158,11 +158,7 @@ async function handleWebhook(request: NextRequest) {
   const payload = parsed as WebhookPayload;
 
   const { message: msg, account } = payload;
-
-  // Ignore outbound messages (sent by the bot itself) to prevent loops
-  if (msg.direction === "outbound") {
-    return NextResponse.json({ ok: true, skipped: true });
-  }
+  const isOutbound = msg.direction === "outbound";
 
   const supabase = await createServiceClient();
 
@@ -179,9 +175,14 @@ async function handleWebhook(request: NextRequest) {
   }
 
   // Prevent loops: if the sender is another connected account in this
-  // workspace, skip. This happens when both sides of a DM conversation
-  // are connected (e.g. during testing).
-  if (msg.sender.username) {
+  // workspace, skip. This happens when both sides of a DM conversation are
+  // connected (e.g. during testing). Only meaningful for inbound — for an
+  // outbound message the sender IS the connected account by definition, so
+  // this check would always (wrongly) fire and was previously the second of
+  // two reasons a reply sent from the real Instagram/Facebook app, instead of
+  // through this tool, never showed up in the inbox: it's a legitimate
+  // message on our own channel, not a loop.
+  if (!isOutbound && msg.sender.username) {
     const { data: senderChannel } = await supabase
       .from("channels")
       .select("id")
@@ -226,20 +227,31 @@ async function processMessageEvent(
   channel: Database["public"]["Tables"]["channels"]["Row"],
 ) {
   const { message: msg, conversation: conv, account, metadata } = payload;
+  const isOutbound = msg.direction === "outbound";
 
   // ── Upsert contact ───────────────────────────────────────────────────────
 
-  const senderId = msg.sender.id;
-  const senderName = msg.sender.name || msg.sender.username || senderId;
+  // For an outbound message (sent from the real Instagram/Facebook app, not
+  // through this tool — a Zernio-mirrored echo of it), `msg.sender` is our
+  // own connected account, not the contact. The conversation's participant
+  // fields are the contact regardless of direction, so use those instead.
+  // `stampExisting: false` avoids bumping the contact's last_interaction_at
+  // on our own reply — that field means "the contact last engaged us" for
+  // sequence stop-on-reply / trigger logic, and should only move on inbound.
+  const senderId = isOutbound ? conv.participantId : msg.sender.id;
+  const senderName = isOutbound
+    ? conv.participantName || conv.participantUsername || conv.participantId
+    : msg.sender.name || msg.sender.username || senderId;
 
   const contact = await upsertContactForSender({
     supabase,
     channel,
     senderId,
     senderName,
-    senderPicture: msg.sender.picture || null,
-    senderUsername: msg.sender.username || null,
+    senderPicture: (isOutbound ? conv.participantPicture : msg.sender.picture) || null,
+    senderUsername: (isOutbound ? conv.participantUsername : msg.sender.username) || null,
     interactionAt: new Date().toISOString(),
+    stampExisting: !isOutbound,
   });
 
   if (!contact) {
@@ -253,6 +265,8 @@ async function processMessageEvent(
 
   const preview = messagePreview(msg.text);
 
+  // An outbound reply (sent from the real app) means the operator is caught
+  // up on this thread, so it clears unread rather than adding to it.
   const { data: conversation } = await supabase
     .from("conversations")
     .upsert(
@@ -265,7 +279,7 @@ async function processMessageEvent(
         status: "open",
         last_message_at: new Date().toISOString(),
         last_message_preview: preview,
-        unread_count: 1,
+        unread_count: isOutbound ? 0 : 1,
       },
       { onConflict: "channel_id,contact_id" }
     )
@@ -276,6 +290,13 @@ async function processMessageEvent(
     console.error("Failed to upsert conversation for webhook message");
     return;
   }
+
+  // Everything below — auto-assignment, ad-referral capture, DM keyword
+  // logging, and the flow engine — is about reacting to a contact's own
+  // message. An outbound echo has none of that to do; the upsert above
+  // (which is the actual fix for outbound messages never reaching the
+  // inbox) is already complete for this direction.
+  if (isOutbound) return;
 
   // The (channel_id, contact_id) upsert above only ever creates a row the
   // first time this contact messages this channel, so a brand-new contact
