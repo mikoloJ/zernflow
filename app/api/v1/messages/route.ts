@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createZernioClient } from "@/lib/zernio-client";
 import { messagePreview } from "@/lib/message-preview";
+import { refreshLateConversationId } from "@/lib/inbox-sync";
 import {
   fillAutomationTemplates,
   enrichWithAutomations,
@@ -227,14 +228,58 @@ export async function POST(request: NextRequest) {
   // Send via Zernio SDK — Zernio stores the message, no local insert needed
   try {
     const zernio = createZernioClient(workspace.late_api_key_encrypted);
-    const res = await zernio.messages.sendInboxMessage({
-      path: { conversationId: conversation.late_conversation_id },
+    let sendConversationId = conversation.late_conversation_id;
+    let res = await zernio.messages.sendInboxMessage({
+      path: { conversationId: sendConversationId },
       body: {
         accountId: channel.late_account_id,
         ...(text.trim() ? { message: text } : {}),
         ...(attachmentUrl ? { attachmentUrl, attachmentType } : {}),
       },
     });
+
+    // A participant can end up with more than one Zernio conversation object
+    // over time; our stored late_conversation_id can point at one that's
+    // been superseded, which Zernio rejects as an ownership error even
+    // though the account and contact are both fine. Resync to the
+    // participant's current conversation id and retry once before giving up.
+    const ownershipError =
+      res.error &&
+      /not the thread owner|thread owner/i.test(
+        (res.error as { error?: string; message?: string })?.error ||
+          (res.error as { error?: string; message?: string })?.message ||
+          ""
+      );
+    if (ownershipError) {
+      const { data: senderLink } = await supabase
+        .from("contact_channels")
+        .select("platform_sender_id")
+        .eq("contact_id", conversation.contact_id)
+        .eq("channel_id", conversation.channel_id)
+        .maybeSingle();
+
+      const freshId = senderLink?.platform_sender_id
+        ? await refreshLateConversationId({
+            supabase,
+            zernio,
+            channel: { late_account_id: channel.late_account_id },
+            conversationRowId: conversationId,
+            platformSenderId: senderLink.platform_sender_id,
+          })
+        : null;
+
+      if (freshId && freshId !== sendConversationId) {
+        sendConversationId = freshId;
+        res = await zernio.messages.sendInboxMessage({
+          path: { conversationId: sendConversationId },
+          body: {
+            accountId: channel.late_account_id,
+            ...(text.trim() ? { message: text } : {}),
+            ...(attachmentUrl ? { attachmentUrl, attachmentType } : {}),
+          },
+        });
+      }
+    }
 
     if (res.error) {
       const e = res.error as { error?: string; message?: string };
