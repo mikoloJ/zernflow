@@ -279,6 +279,16 @@ export async function handleAutomationButtonTap({
       throwOnError: true,
     });
     await bump(supabase, automation.id, "link_dms_sent");
+
+    // Same reasoning as the manual-send API route and the flow engine: clear
+    // unread instantly rather than leaving it to a webhook echo of this same
+    // send, so the inbox doesn't sit on a stale unread badge after the bot
+    // has already replied.
+    await supabase
+      .from("conversations")
+      .update({ unread_count: 0 })
+      .eq("channel_id", channel.id)
+      .eq("late_conversation_id", lateConversationId);
   } catch (err) {
     console.error(`[automation ${automation.id}] link DM failed:`, err);
   }
