@@ -16,6 +16,8 @@ interface TriggerPanelData {
   keywords?: Keyword[];
   payload?: string;
   alsoMatchInDms?: boolean;
+  frequency?: "always" | "once_per_24h";
+  skipStoryReplies?: boolean;
   [key: string]: unknown;
 }
 
@@ -254,6 +256,59 @@ export function TriggerPanel({ data: rawData, onChange }: TriggerPanelProps) {
             </p>
           </div>
         </>
+      )}
+
+      {/* Default Reply: frequency + story-reply handling */}
+      {triggerType === "default" && (
+        <div className="space-y-4">
+          <div>
+            <label className="mb-2 block text-xs font-semibold text-foreground">
+              When this happens
+            </label>
+            <p className="mb-2 text-xs text-muted-foreground">
+              Default Reply is triggered when a contact sends a message the bot
+              does not recognize as an automation.
+            </p>
+            <div className="space-y-1.5">
+              <label className="flex cursor-pointer items-center gap-2.5 rounded-lg border border-border bg-card p-2.5">
+                <input
+                  type="radio"
+                  name="defaultFrequency"
+                  checked={(data.frequency || "always") === "always"}
+                  onChange={() => onChange({ ...data, frequency: "always" })}
+                  className="h-4 w-4 border-input text-emerald-500 focus:ring-emerald-500"
+                />
+                <span className="text-sm text-foreground">every time</span>
+              </label>
+              <label className="flex cursor-pointer items-center gap-2.5 rounded-lg border border-border bg-card p-2.5">
+                <input
+                  type="radio"
+                  name="defaultFrequency"
+                  checked={data.frequency === "once_per_24h"}
+                  onChange={() => onChange({ ...data, frequency: "once_per_24h" })}
+                  className="h-4 w-4 border-input text-emerald-500 focus:ring-emerald-500"
+                />
+                <span className="text-sm text-foreground">once per 24 hours</span>
+              </label>
+            </div>
+          </div>
+
+          <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-border bg-card p-3">
+            <input
+              type="checkbox"
+              checked={data.skipStoryReplies === true}
+              onChange={(e) => onChange({ ...data, skipStoryReplies: e.target.checked })}
+              className="mt-0.5 h-4 w-4 rounded border-input text-emerald-500 focus:ring-emerald-500"
+            />
+            <div>
+              <p className="text-sm font-medium text-foreground">Skip story replies</p>
+              <p className="text-xs text-muted-foreground">
+                Make Default Reply trigger only on Instagram Direct messages and
+                ignore replies to (or mentions of) your stories.
+              </p>
+            </div>
+          </label>
+        </div>
       )}
 
       {/* Payload Section */}

@@ -1,15 +1,26 @@
 "use client";
 
-import { useCallback, useRef } from "react";
-import { Plus, X, GripVertical, Image, Type, MousePointer, MessageCircle, LayoutGrid } from "lucide-react";
+import { useCallback, useEffect, useRef } from "react";
+import { Plus, X, GripVertical, Image, Type, MousePointer, MessageCircle, LayoutGrid, Link2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
+// Stable, unique per button/quick-reply — used only to wire this specific
+// item to a canvas connection (see send-message-node.tsx). Independent from
+// `payload`, which stays the literal string sent to the platform.
+function generateHandleId(): string {
+  return typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID().slice(0, 8)
+    : Math.random().toString(36).slice(2, 10);
+}
+
 interface QuickReply {
+  id?: string;
   title: string;
   payload: string;
 }
 
 interface Button {
+  id?: string;
   title: string;
   type: "postback" | "url";
   payload?: string;
@@ -82,6 +93,31 @@ function VariablePicker({
 export function SendMessagePanel({ data: rawData, onChange, availableVariables }: SendMessagePanelProps) {
   const data = rawData as SendMessagePanelData;
   const messages = data.messages || [];
+
+  // Self-heal: buttons/quick replies saved before per-item routing existed
+  // (or a button copy-pasted from elsewhere) may be missing the internal `id`
+  // that the canvas needs to give them their own connection handle. Backfill
+  // silently so old flows immediately gain a wireable connector without the
+  // person having to touch anything.
+  useEffect(() => {
+    let changed = false;
+    const healed = messages.map((m) => {
+      const buttons = m.buttons?.map((b) => {
+        if (b.id) return b;
+        changed = true;
+        return { ...b, id: generateHandleId() };
+      });
+      const quickReplies = m.quickReplies?.map((q) => {
+        if (q.id) return q;
+        changed = true;
+        return { ...q, id: generateHandleId() };
+      });
+      return { ...m, ...(buttons ? { buttons } : {}), ...(quickReplies ? { quickReplies } : {}) };
+    });
+    if (changed) onChange({ ...data, messages: healed });
+    // `changed` guards against looping: once every button/quick-reply has an
+    // id, healed deep-equals the input and this becomes a no-op.
+  }, [messages, data, onChange]);
 
   const updateMessage = useCallback(
     (index: number, updated: Message) => {
@@ -206,7 +242,10 @@ function MessageEditor({
   // Quick replies
   const addQuickReply = useCallback(() => {
     const replies = message.quickReplies || [];
-    onChange({ ...message, quickReplies: [...replies, { title: "", payload: "" }] });
+    onChange({
+      ...message,
+      quickReplies: [...replies, { id: generateHandleId(), title: "", payload: "" }],
+    });
   }, [message, onChange]);
 
   const updateQuickReply = useCallback(
@@ -229,7 +268,10 @@ function MessageEditor({
   // Buttons
   const addButton = useCallback(() => {
     const buttons = message.buttons || [];
-    onChange({ ...message, buttons: [...buttons, { title: "", type: "postback", payload: "" }] });
+    onChange({
+      ...message,
+      buttons: [...buttons, { id: generateHandleId(), title: "", type: "postback", payload: "" }],
+    });
   }, [message, onChange]);
 
   const updateButton = useCallback(
@@ -394,6 +436,11 @@ function MessageEditor({
                   Add
                 </button>
               </div>
+              <p className="mb-1.5 flex items-center gap-1 text-[11px] text-muted-foreground/60">
+                <Link2 className="h-2.5 w-2.5" />
+                Each quick reply gets its own connector dot on the node — drag from it
+                to send that specific reply down its own path.
+              </p>
               {(message.quickReplies || []).map((qr, i) => (
                 <div key={i} className="mb-2 flex items-center gap-2">
                   <input
@@ -439,6 +486,12 @@ function MessageEditor({
                   Add
                 </button>
               </div>
+              <p className="mb-1.5 flex items-center gap-1 text-[11px] text-muted-foreground/60">
+                <Link2 className="h-2.5 w-2.5" />
+                Postback buttons each get their own connector dot on the node, so you
+                can send every button to a different next step. URL buttons just open
+                the link and have nothing to connect.
+              </p>
               {(message.buttons || []).map((btn, i) => (
                 <div
                   key={i}
