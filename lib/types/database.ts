@@ -200,6 +200,8 @@ export interface Database {
           is_subscribed: boolean;
           last_interaction_at: string | null;
           metadata: Json | null;
+          is_follower: boolean | null;
+          follower_checked_at: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -212,6 +214,8 @@ export interface Database {
           is_subscribed?: boolean;
           last_interaction_at?: string | null;
           metadata?: Json | null;
+          is_follower?: boolean | null;
+          follower_checked_at?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -222,6 +226,8 @@ export interface Database {
           is_subscribed?: boolean;
           last_interaction_at?: string | null;
           metadata?: Json | null;
+          is_follower?: boolean | null;
+          follower_checked_at?: string | null;
           updated_at?: string;
         };
         Relationships: [
