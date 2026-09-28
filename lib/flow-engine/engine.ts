@@ -20,6 +20,7 @@ import type {
 import { executeAiResponse } from "./nodes/ai-response";
 import { adaptMessage } from "./platform-adapter";
 import { createZernioClient } from "@/lib/zernio-client";
+import { messagePreview } from "@/lib/message-preview";
 
 export async function executeFlow(
   supabase: SupabaseClient<Database>,
@@ -635,6 +636,18 @@ async function executeSendMessage(
         contact_id: context.contactId,
         event_type: "message_sent",
       });
+
+      // Same reasoning as the manual-send API route: clear unread instantly
+      // rather than waiting for Zernio to echo this automation's own send
+      // back as a webhook event.
+      await supabase
+        .from("conversations")
+        .update({
+          last_message_at: new Date().toISOString(),
+          last_message_preview: messagePreview(text),
+          unread_count: 0,
+        })
+        .eq("id", context.conversationId);
     } catch (error) {
       console.error("Failed to send message:", error);
       await supabase.from("messages").insert({
