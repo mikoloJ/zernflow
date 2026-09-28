@@ -33,6 +33,7 @@ export type FilterField =
   | "engaged_via_ad"
   | "commented_on_post"
   | "commented_keyword"
+  | "dm_keyword"
   | "last_interaction";
 
 export interface FilterRule {
@@ -117,6 +118,11 @@ const fieldConfig: Record<
   },
   commented_keyword: {
     label: "Commented keyword",
+    operators: [{ value: "contains", label: "contains" }],
+    valueType: "text",
+  },
+  dm_keyword: {
+    label: "Said in a DM",
     operators: [{ value: "contains", label: "contains" }],
     valueType: "text",
   },
