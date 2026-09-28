@@ -229,28 +229,30 @@ export async function POST(request: NextRequest) {
   try {
     const zernio = createZernioClient(workspace.late_api_key_encrypted);
     let sendConversationId = conversation.late_conversation_id;
-    let res = await zernio.messages.sendInboxMessage({
-      path: { conversationId: sendConversationId },
-      body: {
-        accountId: channel.late_account_id,
-        ...(text.trim() ? { message: text } : {}),
-        ...(attachmentUrl ? { attachmentUrl, attachmentType } : {}),
-      },
-    });
 
-    // A participant can end up with more than one Zernio conversation object
-    // over time; our stored late_conversation_id can point at one that's
-    // been superseded, which Zernio rejects as an ownership error even
-    // though the account and contact are both fine. Resync to the
-    // participant's current conversation id and retry once before giving up.
-    const ownershipError =
-      res.error &&
-      /not the thread owner|thread owner/i.test(
-        (res.error as { error?: string; message?: string })?.error ||
-          (res.error as { error?: string; message?: string })?.message ||
-          ""
-      );
-    if (ownershipError) {
+    const attemptSend = (convId: string) =>
+      zernio.messages.sendInboxMessage({
+        path: { conversationId: convId },
+        body: {
+          accountId: channel.late_account_id,
+          ...(text.trim() ? { message: text } : {}),
+          ...(attachmentUrl ? { attachmentUrl, attachmentType } : {}),
+        },
+      });
+
+    let res: Awaited<ReturnType<typeof attemptSend>>;
+    try {
+      res = await attemptSend(sendConversationId);
+    } catch (err) {
+      // A participant can end up with more than one Zernio conversation
+      // object over time; our stored late_conversation_id can point at one
+      // that's been superseded, which Zernio rejects as an ownership error
+      // (it throws here — Zernio's SDK doesn't return this one as res.error)
+      // even though the account and contact are both fine. Resync to the
+      // participant's current conversation id and retry once before giving up.
+      const msg = err instanceof Error ? err.message : String(err);
+      if (!/not the thread owner|thread owner/i.test(msg)) throw err;
+
       const { data: senderLink } = await supabase
         .from("contact_channels")
         .select("platform_sender_id")
@@ -268,17 +270,9 @@ export async function POST(request: NextRequest) {
           })
         : null;
 
-      if (freshId && freshId !== sendConversationId) {
-        sendConversationId = freshId;
-        res = await zernio.messages.sendInboxMessage({
-          path: { conversationId: sendConversationId },
-          body: {
-            accountId: channel.late_account_id,
-            ...(text.trim() ? { message: text } : {}),
-            ...(attachmentUrl ? { attachmentUrl, attachmentType } : {}),
-          },
-        });
-      }
+      if (!freshId || freshId === sendConversationId) throw err;
+      sendConversationId = freshId;
+      res = await attemptSend(sendConversationId);
     }
 
     if (res.error) {
