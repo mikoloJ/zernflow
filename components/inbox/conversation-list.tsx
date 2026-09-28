@@ -259,7 +259,12 @@ export function ConversationList({
               {/* Content */}
               <div className="min-w-0 flex-1">
                 <div className="flex items-center justify-between">
-                  <p className="flex min-w-0 items-center gap-1.5 truncate text-sm font-medium">
+                  <p
+                    className={cn(
+                      "flex min-w-0 items-center gap-1.5 truncate text-sm",
+                      conversation.unread_count > 0 ? "font-semibold text-foreground" : "font-medium",
+                    )}
+                  >
                     <span className="truncate">{conversation.contacts?.display_name ?? "Unknown"}</span>
                     {(conversation as { source?: { kind?: string } | null }).source?.kind === "ad" && (
                       <span className="flex-shrink-0 rounded bg-amber-100 px-1 py-px text-[9px] font-semibold uppercase tracking-wide text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
@@ -269,13 +274,21 @@ export function ConversationList({
                   </p>
                   <span
                     suppressHydrationWarning
-                    className="flex-shrink-0 text-[11px] text-muted-foreground"
+                    className={cn(
+                      "flex-shrink-0 text-[11px]",
+                      conversation.unread_count > 0 ? "font-medium text-foreground" : "text-muted-foreground",
+                    )}
                   >
                     {mounted ? formatTime(conversation.last_message_at) : ""}
                   </span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                  <p
+                    className={cn(
+                      "mt-0.5 truncate text-xs",
+                      conversation.unread_count > 0 ? "font-medium text-foreground/80" : "text-muted-foreground",
+                    )}
+                  >
                     {conversation.last_message_preview ?? "No messages yet"}
                   </p>
                   {conversation.unread_count > 0 && (
