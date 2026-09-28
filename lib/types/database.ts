@@ -1081,6 +1081,52 @@ export interface Database {
           },
         ];
       };
+      dm_message_logs: {
+        Row: {
+          id: string;
+          channel_id: string;
+          workspace_id: string;
+          contact_id: string;
+          platform_message_id: string;
+          message_text: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          channel_id: string;
+          workspace_id: string;
+          contact_id: string;
+          platform_message_id: string;
+          message_text: string;
+          created_at?: string;
+        };
+        Update: {
+          message_text?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "dm_message_logs_channel_id_fkey";
+            columns: ["channel_id"];
+            isOneToOne: false;
+            referencedRelation: "channels";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "dm_message_logs_workspace_id_fkey";
+            columns: ["workspace_id"];
+            isOneToOne: false;
+            referencedRelation: "workspaces";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "dm_message_logs_contact_id_fkey";
+            columns: ["contact_id"];
+            isOneToOne: false;
+            referencedRelation: "contacts";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       webhook_events: {
         Row: {
           event_id: string;
