@@ -88,10 +88,16 @@ export function NewMessageWatcher({ workspaceId }: { workspaceId: string }) {
       flashTitle("🔴 New message");
       if ("Notification" in window && Notification.permission === "granted") {
         try {
-          new Notification(`New message from ${name}`, {
+          const n = new Notification(`${name} sent a new message`, {
             body: preview || "Open the inbox to view it.",
             tag: "tegrax-flow-new-message",
           });
+          // Clicking the OS toast should bring the operator straight back
+          // to this tab, not just dismiss it.
+          n.onclick = () => {
+            window.focus();
+            n.close();
+          };
         } catch {
           // Some browsers (notably in-app/embedded webviews) throw on
           // `new Notification()` even when permission reads "granted".
