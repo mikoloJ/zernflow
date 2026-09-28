@@ -22,7 +22,7 @@ export interface BackfillChannel {
 }
 
 /** Conversation item shape returned by Zernio's listInboxConversations. */
-interface ZernioInboxConversation {
+export interface ZernioInboxConversation {
   id?: string;
   participantId?: string;
   participantName?: string;
@@ -320,4 +320,52 @@ async function importConversation({
   }
 
   return inserted;
+}
+
+/**
+ * Looks up the participant's *current* Zernio conversation id and, if it
+ * differs from what we have stored, updates our `conversations` row to
+ * match and returns the fresh id.
+ *
+ * Why this exists: a participant can have more than one Zernio conversation
+ * object over time (see backfillChannel above) — Meta/Zernio can start a new
+ * thread for the same person, which leaves our originally-stored
+ * `late_conversation_id` pointing at a superseded thread. Sending on a
+ * superseded thread comes back from Zernio as an ownership error (something
+ * like "the action is invalid as it's not the thread owner"), even though
+ * the account and contact are otherwise fine. `listInboxConversations`
+ * sorted desc always puts the live thread first per participant, so that's
+ * what we resync to.
+ *
+ * Returns null when no matching conversation is found (nothing to refresh).
+ */
+export async function refreshLateConversationId({
+  supabase,
+  zernio,
+  channel,
+  conversationRowId,
+  platformSenderId,
+}: {
+  supabase: SupabaseClient;
+  zernio: Zernio;
+  channel: { late_account_id: string };
+  conversationRowId: string;
+  platformSenderId: string;
+}): Promise<string | null> {
+  let cursor: string | undefined;
+  for (let page = 0; page < MAX_PAGES_PER_CHANNEL; page++) {
+    const res = await zernio.messages.listInboxConversations({
+      query: { accountId: channel.late_account_id, limit: PAGE_SIZE, sortOrder: "desc", cursor },
+    });
+    const conversations = (res.data?.data ?? []) as ZernioInboxConversation[];
+    const match = conversations.find((c) => c.participantId === platformSenderId && c.id);
+    if (match?.id) {
+      await supabase.from("conversations").update({ late_conversation_id: match.id }).eq("id", conversationRowId);
+      return match.id;
+    }
+    const pagination = res.data?.pagination;
+    if (!pagination?.hasMore || !pagination.nextCursor) break;
+    cursor = pagination.nextCursor;
+  }
+  return null;
 }
