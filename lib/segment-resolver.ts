@@ -193,6 +193,17 @@ async function evaluateRule(
       return await matchCommentAuthors(supabase, logs ?? [], contactIds);
     }
 
+    // Sent a DM containing this text, at any point.
+    case "dm_keyword": {
+      const { data: logs } = await supabase
+        .from("dm_message_logs")
+        .select("contact_id")
+        .eq("workspace_id", workspaceId)
+        .in("contact_id", contactIds)
+        .ilike("message_text", `%${rule.value}%`);
+      return new Set((logs ?? []).map((l) => l.contact_id));
+    }
+
     case "last_interaction": {
       const date = new Date(rule.value).toISOString();
       let query = supabase
