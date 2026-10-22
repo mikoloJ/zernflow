@@ -442,6 +442,13 @@ function matchTappedButton(
         (b) => b.type === "postback" && b.id && b.payload === incoming.postbackPayload
       );
       if (btn) return `handle:btn:${btn.id}`;
+
+      for (const el of m.carousel?.elements || []) {
+        const cardBtn = el.buttons?.find(
+          (b) => b.type === "postback" && b.id && b.payload === incoming.postbackPayload
+        );
+        if (cardBtn) return `handle:btn:${cardBtn.id}`;
+      }
     }
     if (incoming.quickReplyPayload) {
       const qr = m.quickReplies?.find((q) => q.id && q.payload === incoming.quickReplyPayload);
@@ -461,10 +468,19 @@ async function sendFirstMessageAsPrivateReply(
   const first = data.messages[0];
   if (!first) return;
 
-  const text = interpolateVariables(
-    adaptMessage(first, context.platform ?? "instagram").text,
-    context.variables || {}
-  );
+  const adapted = adaptMessage(first, context.platform ?? "instagram");
+  const text = interpolateVariables(adapted.text, context.variables || {});
+
+  // sendPrivateReplyToComment has no "template" field — a carousel can only
+  // be sent once a real conversation exists (the regular send path below),
+  // never as the first-ever message to a brand-new commenter. If this node
+  // was built as a carousel, there is nothing to degrade it to here; send
+  // the text alone rather than silently sending an empty/broken reply.
+  const body: Record<string, unknown> = { accountId: lateAccountId, message: text };
+  if (!adapted.template) {
+    if (adapted.buttons?.length) body.buttons = adapted.buttons;
+    if (adapted.quickReplies?.length) body.quickReplies = adapted.quickReplies;
+  }
 
   try {
     await zernio.comments.sendPrivateReplyToComment({
@@ -472,7 +488,7 @@ async function sendFirstMessageAsPrivateReply(
         postId: String(context.variables!.post_id),
         commentId: String(context.variables!.comment_id),
       },
-      body: { accountId: lateAccountId, message: text },
+      body: body as never,
     });
 
     await supabase.from("messages").insert({

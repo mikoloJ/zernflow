@@ -12,6 +12,12 @@ export interface SendMessageNodeProps {
     imageUrl?: string;
     quickReplies?: Array<{ id?: string; title: string; payload: string }>;
     buttons?: Array<{ id?: string; title: string; type: string; payload?: string; url?: string }>;
+    carousel?: {
+      elements: Array<{
+        title: string;
+        buttons?: Array<{ id?: string; title: string; type: string; payload?: string; url?: string }>;
+      }>;
+    };
   }>;
 }
 
@@ -36,6 +42,12 @@ function getRoutableItems(messages: SendMessageNodeProps["messages"]): RoutableI
     for (const qr of m.quickReplies || []) {
       if (!qr.id) continue;
       items.push({ handleId: `qr:${qr.id}`, title: qr.title || "Quick reply", kind: "quickReply" });
+    }
+    for (const el of m.carousel?.elements || []) {
+      for (const btn of el.buttons || []) {
+        if (btn.type === "url" || !btn.id) continue;
+        items.push({ handleId: `btn:${btn.id}`, title: btn.title || "Button", kind: "button" });
+      }
     }
   }
   return items;
