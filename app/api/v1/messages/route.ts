@@ -270,7 +270,28 @@ export async function POST(request: NextRequest) {
           })
         : null;
 
-      if (!freshId || freshId === sendConversationId) throw err;
+      // For Instagram/Facebook, listInboxConversations always returns the
+      // platform thread id (== the participant id), which is what we already
+      // have stored — so the resync can never turn up a "fresher" id for
+      // those platforms. A same/no-op resync here means the id was never
+      // stale: Zernio's connected app has lost thread ownership on Meta's
+      // side (its Handover Protocol), almost always because someone replied
+      // to this contact directly from the native Instagram/Facebook app or
+      // Meta Business Suite inbox, which reclaims thread control away from
+      // Zernio's app. Zernio only exposes a way to reclaim control
+      // (thread-control endpoint) for WhatsApp, not Instagram/Facebook, so
+      // there's nothing to retry — surface that plainly instead of a raw
+      // Meta error or a generic 500.
+      if (!freshId || freshId === sendConversationId) {
+        return NextResponse.json(
+          {
+            error:
+              "Can't send: this contact was messaged directly from the Instagram/Facebook app, which took over the conversation. Reply from there, or ask them to message this account again to hand control back — ZernFlow can't reclaim it.",
+            code: "thread_owner_lost",
+          },
+          { status: 409 },
+        );
+      }
       sendConversationId = freshId;
       res = await attemptSend(sendConversationId);
     }

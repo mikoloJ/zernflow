@@ -148,6 +148,21 @@ export function simulateFlow(
     triggerMatched =
       keywords.length === 0 ||
       keywords.some((k) => msg.includes(k.toLowerCase()));
+  } else if (triggerType === "comment_keyword") {
+    // Mirrors matchCommentTrigger in lib/comment-processor.ts: each keyword
+    // carries its own matchType (default "contains"), checked against the
+    // trimmed comment text. postIds scoping is skipped here — the test panel
+    // simulates an arbitrary comment, not one on a specific post.
+    const msg = config.incomingMessage.toLowerCase().trim();
+    triggerMatched = rawKeywords.some((k) => {
+      const value = (typeof k === "string" ? k : k?.value ?? "").toLowerCase();
+      if (!value) return false;
+      const matchType =
+        (typeof k === "object" && (k as { matchType?: string }).matchType) || "contains";
+      if (matchType === "exact") return msg === value;
+      if (matchType === "startsWith") return msg.startsWith(value);
+      return msg.includes(value);
+    });
   } else if (triggerType === "welcome" || triggerType === "default") {
     triggerMatched = true;
   }
