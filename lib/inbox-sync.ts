@@ -11,9 +11,16 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Zernio } from "./zernio-client";
 import { messagePreview } from "@/lib/message-preview";
 
-/** Cap per channel: 4 pages x 50 conversations. */
-const MAX_PAGES_PER_CHANNEL = 4;
+/** Cap per channel: 20 pages x 50 conversations (was 4 x 50 — too small for
+ * workspaces with thousands of historical DM contacts). */
+const MAX_PAGES_PER_CHANNEL = 20;
 const PAGE_SIZE = 50;
+
+/** Commenter backfill: how far back to look, and how much per channel. */
+const COMMENTER_LOOKBACK_DAYS = 90;
+const MAX_POSTS_PER_CHANNEL = 20;
+const MAX_COMMENT_PAGES_PER_POST = 3;
+const COMMENT_PAGE_SIZE = 50;
 
 export interface BackfillChannel {
   id: string;
@@ -192,6 +199,115 @@ export async function backfillInboxConversations({
   }
 
   return { imported };
+}
+
+/**
+ * Imports contacts for everyone who has commented on this workspace's posts
+ * in the last ~90 days, not just the ones who matched a trigger/automation
+ * (comment-processor only ever creates a contact for a matched comment, so
+ * someone who commented but never hit a keyword rule was otherwise invisible
+ * in Contacts). Insert-only via upsertContactForSender, so an already-known
+ * contact is left untouched. A failing channel or post is logged and
+ * skipped, not fatal — one bad post shouldn't abort the whole sync.
+ */
+export async function backfillCommenters({
+  supabase,
+  zernio,
+  workspaceId,
+  channels,
+}: {
+  supabase: SupabaseClient;
+  zernio: Zernio;
+  workspaceId: string;
+  channels: BackfillChannel[];
+}): Promise<{ imported: number }> {
+  let imported = 0;
+  const since = new Date(Date.now() - COMMENTER_LOOKBACK_DAYS * 24 * 60 * 60 * 1000).toISOString();
+
+  for (const channel of channels) {
+    try {
+      const postsRes = await zernio.comments.listInboxComments({
+        query: {
+          accountId: channel.late_account_id,
+          since,
+          limit: MAX_POSTS_PER_CHANNEL,
+          sortBy: "date",
+          sortOrder: "desc",
+        },
+      });
+      const posts = (postsRes.data as { data?: Array<{ id?: string }> } | undefined)?.data ?? [];
+
+      for (const post of posts) {
+        if (!post.id) continue;
+        try {
+          imported += await backfillPostCommenters({ supabase, zernio, workspaceId, channel, postId: post.id });
+        } catch (err) {
+          console.error(`[inbox-sync] commenter backfill failed for post ${post.id}:`, err);
+        }
+      }
+    } catch (err) {
+      console.error(`[inbox-sync] commenter backfill failed for channel ${channel.id}:`, err);
+    }
+  }
+
+  return { imported };
+}
+
+interface ZernioInboxCommentAuthor {
+  id?: string;
+  name?: string;
+  username?: string;
+  picture?: string | null;
+  isOwner?: boolean;
+}
+
+async function backfillPostCommenters({
+  supabase,
+  zernio,
+  workspaceId,
+  channel,
+  postId,
+}: {
+  supabase: SupabaseClient;
+  zernio: Zernio;
+  workspaceId: string;
+  channel: BackfillChannel;
+  postId: string;
+}): Promise<number> {
+  let imported = 0;
+  let cursor: string | undefined;
+
+  for (let page = 0; page < MAX_COMMENT_PAGES_PER_POST; page++) {
+    const res = await zernio.comments.getInboxPostComments({
+      path: { postId },
+      query: { accountId: channel.late_account_id, limit: COMMENT_PAGE_SIZE, cursor },
+    });
+    const body = res.data as
+      | { comments?: Array<{ from?: ZernioInboxCommentAuthor; createdTime?: string }>; pagination?: { hasMore?: boolean; nextCursor?: string | null } }
+      | undefined;
+    const comments = body?.comments ?? [];
+
+    for (const comment of comments) {
+      const from = comment.from;
+      if (!from?.id || from.isOwner) continue;
+      const result = await upsertContactForSender({
+        supabase,
+        channel: { id: channel.id, workspace_id: workspaceId },
+        senderId: from.id,
+        senderName: from.name || from.username || from.id,
+        senderPicture: from.picture ?? null,
+        senderUsername: from.username ?? null,
+        interactionAt: comment.createdTime ?? new Date().toISOString(),
+        stampExisting: false,
+      });
+      if (result && !result.existed) imported++;
+    }
+
+    if (!body?.pagination?.hasMore || !body.pagination.nextCursor) break;
+    cursor = body.pagination.nextCursor;
+  }
+
+  return imported;
 }
 
 async function backfillChannel({

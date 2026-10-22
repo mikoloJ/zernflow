@@ -321,7 +321,7 @@ describe("backfillInboxConversations", () => {
     });
   });
 
-  it("hard-caps pagination at 4 pages per channel", async () => {
+  it("hard-caps pagination at 20 pages per channel", async () => {
     const fake = makeFakeSupabase({});
     const z = fakeZernio([
       { data: [conv("c1")], pagination: { hasMore: true, nextCursor: "next" } },
@@ -334,7 +334,7 @@ describe("backfillInboxConversations", () => {
       channels: [channel],
     });
 
-    expect(z.list).toHaveBeenCalledTimes(4);
+    expect(z.list).toHaveBeenCalledTimes(20);
   });
 
   it("skips items without an id or participantId", async () => {

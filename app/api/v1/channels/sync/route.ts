@@ -5,7 +5,7 @@ import {
   ensureWebhookRegistered,
   getOrCreateWorkspaceWebhookSecret,
 } from "@/lib/zernio-webhook";
-import { backfillInboxConversations } from "@/lib/inbox-sync";
+import { backfillInboxConversations, backfillCommenters } from "@/lib/inbox-sync";
 import { isSupportedPlatform } from "@/lib/platforms";
 
 async function getWorkspace(supabase: Awaited<ReturnType<typeof createClient>>) {
@@ -148,6 +148,7 @@ export async function POST() {
 
     // Backfill conversations that predate webhook registration (best-effort).
     let conversationsImported = 0;
+    let commentersBackfilled = 0;
     try {
       const { data: activeChannels } = await supabase
         .from("channels")
@@ -162,6 +163,21 @@ export async function POST() {
         channels: activeChannels ?? [],
       });
       conversationsImported = imported;
+
+      // Backfill contacts for everyone who commented on a post in the last
+      // ~90 days, not just whoever matched a trigger (best-effort, same as
+      // the conversation backfill above).
+      try {
+        const { imported: commentersImported } = await backfillCommenters({
+          supabase,
+          zernio,
+          workspaceId: workspace.id,
+          channels: activeChannels ?? [],
+        });
+        commentersBackfilled = commentersImported;
+      } catch (err) {
+        console.error("[channels/sync] commenter backfill failed:", err);
+      }
     } catch (err) {
       console.error("[channels/sync] inbox backfill failed:", err);
     }
@@ -180,6 +196,7 @@ export async function POST() {
         updated,
         deactivated,
         conversationsImported,
+        commentersBackfilled,
         skipped: [...new Set(skipped)],
         failed,
       },
