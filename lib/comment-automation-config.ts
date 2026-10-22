@@ -11,6 +11,17 @@ export interface LinkButton {
   url: string;
 }
 
+export interface OpeningDmButton {
+  /** Stable id, used to encode which button was tapped in the postback
+   * payload (see buttonPayload/parseButtonPayload) so each button can route
+   * to its own follow-up DM. */
+  id: string;
+  label: string;
+  /** The "and then, they will get" DM sent when this specific button is
+   * tapped — its own text and up to 3 of its own link buttons. */
+  followUp: { text: string; buttons: LinkButton[] };
+}
+
 export interface AutomationConfig {
   /** specific = only postIds; any = every post; next = the next post published after nextAfter. */
   postMode: "specific" | "any" | "next";
@@ -30,13 +41,16 @@ export interface AutomationConfig {
   openingDm: {
     enabled: boolean;
     text: string;
+    /** Legacy single-button label, used only when `buttons` is empty (the
+     * classic one-button "Send it!" -> top-level `linkDm` flow). */
     buttonLabel: string;
-    /** Up to 3 direct link buttons. When set, these are sent on the opening
-     * DM itself instead of the single "Send it!" postback button — skipping
-     * the postback->linkDm second step entirely. */
-    buttons: LinkButton[];
+    /** Up to 3 postback buttons, each with its own follow-up DM. When set,
+     * these replace the single "Send it!" button — every tap routes to that
+     * specific button's own `followUp`, not the shared top-level `linkDm`. */
+    buttons: OpeningDmButton[];
   };
 
+  /** Legacy single follow-up DM, used only when openingDm.buttons is empty. */
   linkDm: { text: string; buttons: LinkButton[] };
 }
 
@@ -59,6 +73,33 @@ export const DEFAULT_CONFIG: AutomationConfig = {
   linkDm: { text: "Here you go 👇", buttons: [{ label: "Open link", url: "" }] },
 };
 
+let fallbackIdCounter = 0;
+function fallbackId(): string {
+  fallbackIdCounter += 1;
+  return `btn_${Date.now().toString(36)}_${fallbackIdCounter}`;
+}
+
+/** Defensive against stale shapes (e.g. a brief window where openingDm
+ * buttons were plain {label,url} links with no id/followUp) — backfills
+ * whatever's missing instead of letting old stored configs crash the editor. */
+function normalizeOpeningButton(raw: unknown): OpeningDmButton {
+  const b = (raw ?? {}) as Partial<OpeningDmButton> & { url?: string };
+  return {
+    id: typeof b.id === "string" && b.id ? b.id : fallbackId(),
+    label: typeof b.label === "string" ? b.label : "",
+    followUp: {
+      text: b.followUp?.text ?? "",
+      buttons: Array.isArray(b.followUp?.buttons)
+        ? b.followUp.buttons
+        // A legacy direct-link button (plain {label,url}) becomes a button
+        // whose follow-up DM just carries that same link onward.
+        : typeof b.url === "string" && b.url
+          ? [{ label: b.label ?? "", url: b.url }]
+          : [],
+    },
+  };
+}
+
 export function parseConfig(raw: Json | null | undefined): AutomationConfig {
   const c = (raw ?? {}) as Partial<AutomationConfig>;
   return {
@@ -70,7 +111,9 @@ export function parseConfig(raw: Json | null | undefined): AutomationConfig {
     openingDm: {
       ...DEFAULT_CONFIG.openingDm,
       ...(c.openingDm ?? {}),
-      buttons: Array.isArray(c.openingDm?.buttons) ? c.openingDm.buttons : [],
+      buttons: Array.isArray(c.openingDm?.buttons)
+        ? c.openingDm.buttons.map(normalizeOpeningButton)
+        : [],
     },
     linkDm: { ...DEFAULT_CONFIG.linkDm, ...(c.linkDm ?? {}) },
   };
@@ -157,14 +200,23 @@ export function interpolate(text: string, vars: Record<string, string>): string 
   return text.replace(/\{\{\s*(\w+)\s*\}\}/g, (_, key) => vars[key] ?? "");
 }
 
-export function buttonPayload(automationId: string) {
-  return `ctd:${automationId}`;
+/** `buttonId` set -> this specific opening-DM button, routed to its own
+ * followUp on tap. Omitted -> the legacy single-button flow (top-level
+ * linkDm). */
+export function buttonPayload(automationId: string, buttonId?: string) {
+  return buttonId ? `ctd:${automationId}:${buttonId}` : `ctd:${automationId}`;
 }
 
-export function parseButtonPayload(payload: string | undefined | null): string | null {
+export function parseButtonPayload(
+  payload: string | undefined | null
+): { automationId: string; buttonId: string | null } | null {
   if (!payload?.startsWith("ctd:")) return null;
-  const id = payload.slice(4);
-  return /^[0-9a-f-]{36}$/i.test(id) ? id : null;
+  const rest = payload.slice(4);
+  const sep = rest.indexOf(":");
+  const automationId = sep === -1 ? rest : rest.slice(0, sep);
+  const buttonId = sep === -1 ? null : rest.slice(sep + 1) || null;
+  if (!/^[0-9a-f-]{36}$/i.test(automationId)) return null;
+  return { automationId, buttonId };
 }
 
 export function validLinkButtons(buttons: LinkButton[]) {

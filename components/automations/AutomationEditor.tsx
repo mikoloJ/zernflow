@@ -11,6 +11,7 @@ import {
   splitKeywords,
   type AutomationConfig,
   type LinkButton,
+  type OpeningDmButton,
 } from "@/lib/comment-automation-config";
 import { PostPicker } from "@/components/flow-builder/panels/PostPicker";
 import { PhonePreview, type PreviewTab } from "./PhonePreview";
@@ -36,6 +37,12 @@ interface AutomationEditorProps {
 }
 
 const BUTTON_MAX = 20;
+
+function generateId(): string {
+  return typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID().slice(0, 8)
+    : Math.random().toString(36).slice(2, 10);
+}
 
 function channelLabel(c: EditorChannel) {
   const name = c.username ? `@${c.username}` : c.display_name || "Account";
@@ -65,15 +72,20 @@ export function AutomationEditor({ workspaceId, channels, initial }: AutomationE
     if (config.postMode === "specific" && config.postIds.length === 0) p.push("Pick at least one post.");
     if (config.keywordMode === "specific" && splitKeywords(keywordInput).length === 0)
       p.push("Add at least one keyword.");
-    const openingHasLinkButtons = config.openingDm.buttons.some((b) => b.label.trim() || b.url.trim());
+    const hasOpeningButtons = config.openingDm.buttons.length > 0;
     if (config.openingDm.enabled && !config.openingDm.text.trim()) p.push("Write the opening DM.");
-    if (config.openingDm.enabled && !openingHasLinkButtons && !config.openingDm.buttonLabel.trim())
+    if (config.openingDm.enabled && !hasOpeningButtons && !config.openingDm.buttonLabel.trim())
       p.push("Give the opening DM a button label.");
-    if (!config.linkDm.text.trim()) p.push("Write the DM with the link.");
+    if (!hasOpeningButtons && !config.linkDm.text.trim()) p.push("Write the DM with the link.");
     config.openingDm.buttons.forEach((b, i) => {
-      if ((b.label.trim() || b.url.trim()) && !/^https?:\/\/\S+\.\S+/i.test(b.url.trim()))
-        p.push(`Opening DM button ${i + 1} needs a full link starting with https://`);
-      if (b.url.trim() && !b.label.trim()) p.push(`Opening DM button ${i + 1} needs a label.`);
+      if (!b.label.trim()) p.push(`Opening DM button ${i + 1} needs a label.`);
+      if (!b.followUp.text.trim()) p.push(`Opening DM button ${i + 1}'s follow-up DM needs text.`);
+      b.followUp.buttons.forEach((lb, j) => {
+        if ((lb.label.trim() || lb.url.trim()) && !/^https?:\/\/\S+\.\S+/i.test(lb.url.trim()))
+          p.push(`Opening DM button ${i + 1}, follow-up link ${j + 1} needs a full link starting with https://`);
+        if (lb.url.trim() && !lb.label.trim())
+          p.push(`Opening DM button ${i + 1}, follow-up link ${j + 1} needs a label.`);
+      });
     });
     config.linkDm.buttons.forEach((b, i) => {
       if ((b.label.trim() || b.url.trim()) && !/^https?:\/\/\S+\.\S+/i.test(b.url.trim()))
@@ -154,7 +166,7 @@ export function AutomationEditor({ workspaceId, channels, initial }: AutomationE
       buttons: config.linkDm.buttons.map((b, j) => (j === i ? { ...b, ...patch } : b)),
     });
 
-  const setOpeningButton = (i: number, patch: Partial<LinkButton>) =>
+  const setOpeningButton = (i: number, patch: Partial<OpeningDmButton>) =>
     update("openingDm", {
       ...config.openingDm,
       buttons: config.openingDm.buttons.map((b, j) => (j === i ? { ...b, ...patch } : b)),
@@ -370,36 +382,19 @@ export function AutomationEditor({ workspaceId, channels, initial }: AutomationE
                         </>
                       )}
 
-                      <div className="space-y-2 pt-1">
+                      <div className="space-y-3 pt-1">
                         {config.openingDm.buttons.map((b, i) => (
-                          <div key={i} className="rounded-lg border border-border bg-card p-2">
-                            <div className="flex items-center gap-1.5">
-                              <input
-                                value={b.label}
-                                onChange={(e) => setOpeningButton(i, { label: e.target.value.slice(0, BUTTON_MAX) })}
-                                placeholder="Button label, e.g. Enrol Now"
-                                className="min-w-0 flex-1 bg-transparent px-1 py-1 text-sm focus:outline-none"
-                              />
-                              <Link2 className="h-3.5 w-3.5 text-primary" />
-                              <IconButton
-                                label="Remove button"
-                                onClick={() =>
-                                  update("openingDm", {
-                                    ...config.openingDm,
-                                    buttons: config.openingDm.buttons.filter((_, j) => j !== i),
-                                  })
-                                }
-                              >
-                                <X className="h-3.5 w-3.5" />
-                              </IconButton>
-                            </div>
-                            <input
-                              value={b.url}
-                              onChange={(e) => setOpeningButton(i, { url: e.target.value })}
-                              placeholder="https://…"
-                              className="mt-1 w-full rounded-md bg-muted px-2 py-1 text-xs focus:outline-none"
-                            />
-                          </div>
+                          <OpeningButtonEditor
+                            key={b.id}
+                            button={b}
+                            onChange={(patch) => setOpeningButton(i, patch)}
+                            onRemove={() =>
+                              update("openingDm", {
+                                ...config.openingDm,
+                                buttons: config.openingDm.buttons.filter((_, j) => j !== i),
+                              })
+                            }
+                          />
                         ))}
                         {config.openingDm.buttons.length < 3 && (
                           <button
@@ -407,17 +402,21 @@ export function AutomationEditor({ workspaceId, channels, initial }: AutomationE
                             onClick={() =>
                               update("openingDm", {
                                 ...config.openingDm,
-                                buttons: [...config.openingDm.buttons, { label: "", url: "" }],
+                                buttons: [
+                                  ...config.openingDm.buttons,
+                                  { id: generateId(), label: "", followUp: { text: "", buttons: [] } },
+                                ],
                               })
                             }
                             className="flex items-center gap-1 text-xs font-medium text-primary"
                           >
-                            <Plus className="h-3.5 w-3.5" /> Add a link button (max 3)
+                            <Plus className="h-3.5 w-3.5" /> Add a button (max 3)
                           </button>
                         )}
                         {config.openingDm.buttons.length > 0 && (
                           <p className="text-xs text-muted-foreground">
-                            Link buttons go out on this DM directly — the &quot;Send it!&quot; button above is skipped while any are set.
+                            Each button here is its own tap target — the &quot;Send it!&quot; button above is
+                            skipped while any are set, and whichever one they tap sends its own follow-up DM below.
                           </p>
                         )}
                       </div>
@@ -430,60 +429,62 @@ export function AutomationEditor({ workspaceId, channels, initial }: AutomationE
                 </div>
               </Section>
 
-              <Section title={config.openingDm.enabled ? "And then, they will get" : "The DM"} onFocus={() => setTab("dm")}>
-                <div className="rounded-xl bg-muted/50 p-3">
-                  <p className="mb-2 text-sm">a DM with a link</p>
-                  <textarea
-                    value={config.linkDm.text}
-                    onChange={(e) => update("linkDm", { ...config.linkDm, text: e.target.value })}
-                    rows={4}
-                    maxLength={1000}
-                    className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm"
-                  />
-                  <CharCount value={config.linkDm.text} max={1000} />
-                  <div className="mt-2 space-y-2">
-                    {config.linkDm.buttons.map((b, i) => (
-                      <div key={i} className="rounded-lg border border-border bg-card p-2">
-                        <div className="flex items-center gap-1.5">
+              {config.openingDm.buttons.length === 0 && (
+                <Section title={config.openingDm.enabled ? "And then, they will get" : "The DM"} onFocus={() => setTab("dm")}>
+                  <div className="rounded-xl bg-muted/50 p-3">
+                    <p className="mb-2 text-sm">a DM with a link</p>
+                    <textarea
+                      value={config.linkDm.text}
+                      onChange={(e) => update("linkDm", { ...config.linkDm, text: e.target.value })}
+                      rows={4}
+                      maxLength={1000}
+                      className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm"
+                    />
+                    <CharCount value={config.linkDm.text} max={1000} />
+                    <div className="mt-2 space-y-2">
+                      {config.linkDm.buttons.map((b, i) => (
+                        <div key={i} className="rounded-lg border border-border bg-card p-2">
+                          <div className="flex items-center gap-1.5">
+                            <input
+                              value={b.label}
+                              onChange={(e) => setButton(i, { label: e.target.value.slice(0, BUTTON_MAX) })}
+                              placeholder="Button label, e.g. Enrol Now"
+                              className="min-w-0 flex-1 bg-transparent px-1 py-1 text-sm focus:outline-none"
+                            />
+                            <Link2 className="h-3.5 w-3.5 text-primary" />
+                            <IconButton
+                              label="Remove button"
+                              onClick={() =>
+                                update("linkDm", { ...config.linkDm, buttons: config.linkDm.buttons.filter((_, j) => j !== i) })
+                              }
+                            >
+                              <X className="h-3.5 w-3.5" />
+                            </IconButton>
+                          </div>
                           <input
-                            value={b.label}
-                            onChange={(e) => setButton(i, { label: e.target.value.slice(0, BUTTON_MAX) })}
-                            placeholder="Button label, e.g. Enrol Now"
-                            className="min-w-0 flex-1 bg-transparent px-1 py-1 text-sm focus:outline-none"
+                            value={b.url}
+                            onChange={(e) => setButton(i, { url: e.target.value })}
+                            placeholder="https://…"
+                            className="mt-1 w-full rounded-md bg-muted px-2 py-1 text-xs focus:outline-none"
                           />
-                          <Link2 className="h-3.5 w-3.5 text-primary" />
-                          <IconButton
-                            label="Remove button"
-                            onClick={() =>
-                              update("linkDm", { ...config.linkDm, buttons: config.linkDm.buttons.filter((_, j) => j !== i) })
-                            }
-                          >
-                            <X className="h-3.5 w-3.5" />
-                          </IconButton>
                         </div>
-                        <input
-                          value={b.url}
-                          onChange={(e) => setButton(i, { url: e.target.value })}
-                          placeholder="https://…"
-                          className="mt-1 w-full rounded-md bg-muted px-2 py-1 text-xs focus:outline-none"
-                        />
-                      </div>
-                    ))}
-                    {config.linkDm.buttons.length < 3 && (
-                      <button
-                        type="button"
-                        onClick={() => update("linkDm", { ...config.linkDm, buttons: [...config.linkDm.buttons, { label: "", url: "" }] })}
-                        className="flex items-center gap-1 text-xs font-medium text-primary"
-                      >
-                        <Plus className="h-3.5 w-3.5" /> Add a link button (max 3)
-                      </button>
-                    )}
+                      ))}
+                      {config.linkDm.buttons.length < 3 && (
+                        <button
+                          type="button"
+                          onClick={() => update("linkDm", { ...config.linkDm, buttons: [...config.linkDm.buttons, { label: "", url: "" }] })}
+                          className="flex items-center gap-1 text-xs font-medium text-primary"
+                        >
+                          <Plus className="h-3.5 w-3.5" /> Add a link button (max 3)
+                        </button>
+                      )}
+                    </div>
                   </div>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Personalise with {"{{first_name}}"}, {"{{username}}"} or {"{{comment}}"}.
-                </p>
-              </Section>
+                  <p className="text-xs text-muted-foreground">
+                    Personalise with {"{{first_name}}"}, {"{{username}}"} or {"{{comment}}"}.
+                  </p>
+                </Section>
+              )}
 
               {problems.length > 0 && (
                 <ul className="rounded-lg bg-amber-50 px-4 py-3 text-xs text-amber-800">
@@ -569,5 +570,94 @@ function IconButton({ label, onClick, children }: { label: string; onClick: () =
 
 function CharCount({ value, max }: { value: string; max: number }) {
   return <p className="text-right text-[11px] text-muted-foreground">{max - value.length}</p>;
+}
+
+/** One opening-DM button plus its own nested "and then, they will get" DM
+ * (own text, own up to 3 link buttons) — whoever taps this specific button
+ * gets this specific follow-up, not a shared one. */
+function OpeningButtonEditor({
+  button,
+  onChange,
+  onRemove,
+}: {
+  button: OpeningDmButton;
+  onChange: (patch: Partial<OpeningDmButton>) => void;
+  onRemove: () => void;
+}) {
+  const buttons = button.followUp.buttons;
+
+  const setFollowUpButton = (i: number, patch: Partial<LinkButton>) =>
+    onChange({ followUp: { ...button.followUp, buttons: buttons.map((b, j) => (j === i ? { ...b, ...patch } : b)) } });
+
+  return (
+    <div className="rounded-lg border border-border bg-card p-2.5">
+      <div className="flex items-center gap-1.5">
+        <input
+          value={button.label}
+          onChange={(e) => onChange({ label: e.target.value.slice(0, BUTTON_MAX) })}
+          placeholder="Button label, e.g. Enrol Now"
+          className="min-w-0 flex-1 bg-transparent px-1 py-1 text-sm font-medium focus:outline-none"
+        />
+        <IconButton label="Remove button" onClick={onRemove}>
+          <X className="h-3.5 w-3.5" />
+        </IconButton>
+      </div>
+
+      <div className="mt-2 rounded-lg bg-muted/50 p-2.5">
+        <p className="mb-1.5 text-xs font-semibold text-muted-foreground">
+          And then, they will get
+        </p>
+        <textarea
+          value={button.followUp.text}
+          onChange={(e) => onChange({ followUp: { ...button.followUp, text: e.target.value } })}
+          placeholder="The DM sent when this button is tapped…"
+          rows={3}
+          maxLength={1000}
+          className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm"
+        />
+        <CharCount value={button.followUp.text} max={1000} />
+        <div className="mt-1.5 space-y-1.5">
+          {buttons.map((b, i) => (
+            <div key={i} className="rounded-lg border border-border bg-card p-2">
+              <div className="flex items-center gap-1.5">
+                <input
+                  value={b.label}
+                  onChange={(e) => setFollowUpButton(i, { label: e.target.value.slice(0, BUTTON_MAX) })}
+                  placeholder="Button label, e.g. Enrol Now"
+                  className="min-w-0 flex-1 bg-transparent px-1 py-1 text-sm focus:outline-none"
+                />
+                <Link2 className="h-3.5 w-3.5 text-primary" />
+                <IconButton
+                  label="Remove button"
+                  onClick={() =>
+                    onChange({ followUp: { ...button.followUp, buttons: buttons.filter((_, j) => j !== i) } })
+                  }
+                >
+                  <X className="h-3.5 w-3.5" />
+                </IconButton>
+              </div>
+              <input
+                value={b.url}
+                onChange={(e) => setFollowUpButton(i, { url: e.target.value })}
+                placeholder="https://…"
+                className="mt-1 w-full rounded-md bg-muted px-2 py-1 text-xs focus:outline-none"
+              />
+            </div>
+          ))}
+          {buttons.length < 3 && (
+            <button
+              type="button"
+              onClick={() =>
+                onChange({ followUp: { ...button.followUp, buttons: [...buttons, { label: "", url: "" }] } })
+              }
+              className="flex items-center gap-1 text-xs font-medium text-primary"
+            >
+              <Plus className="h-3.5 w-3.5" /> Add a link button (max 3)
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
 }
 

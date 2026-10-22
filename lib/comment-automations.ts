@@ -117,16 +117,21 @@ export async function runCommentAutomations({
   let error: string | undefined;
   const usingOpeningDm = config.openingDm.enabled && config.openingDm.text.trim().length > 0;
   const dmMessage = usingOpeningDm ? interpolate(config.openingDm.text, vars) : interpolate(config.linkDm.text, vars);
-  // When the opening DM has its own direct link buttons configured, send
-  // those straight away instead of the single "Send it!" postback — skips
-  // the postback -> linkDm second step entirely.
-  const openingLinkButtons = usingOpeningDm ? validLinkButtons(config.openingDm.buttons) : [];
+  const openingButtons = config.openingDm.buttons.filter((b) => b.label.trim());
+  // Multiple opening-DM buttons configured: each is its own postback,
+  // routed on tap to that specific button's own follow-up DM
+  // (handleAutomationButtonTap). Otherwise, the classic single "Send it!"
+  // postback -> shared top-level linkDm.
   const dmButtons = usingOpeningDm
-    ? openingLinkButtons.length
-      ? openingLinkButtons
+    ? openingButtons.length
+      ? openingButtons.map((b) => ({
+          type: "postback" as const,
+          title: b.label.trim().slice(0, 20),
+          payload: buttonPayload(automation.id, b.id),
+        }))
       : [
           {
-            type: "postback",
+            type: "postback" as const,
             title: (config.openingDm.buttonLabel || "Send it!").slice(0, 20),
             payload: buttonPayload(automation.id),
           },
@@ -305,8 +310,9 @@ export async function handleAutomationButtonTap({
   lateConversationId: string;
   sender: { name?: string; username?: string | null };
 }): Promise<boolean> {
-  const automationId = parseButtonPayload(payload);
-  if (!automationId) return false;
+  const parsed = parseButtonPayload(payload);
+  if (!parsed) return false;
+  const { automationId, buttonId } = parsed;
 
   const { data: automation } = await supabase
     .from("comment_automations")
@@ -326,8 +332,16 @@ export async function handleAutomationButtonTap({
   await bump(supabase, automation.id, "button_taps");
 
   const config = parseConfig(automation.config);
+  // Which button was actually tapped decides whose follow-up DM goes out —
+  // each opening-DM button has its own text + links. No buttonId (or no
+  // matching button, e.g. the automation was edited since the DM was sent)
+  // falls back to the legacy shared top-level linkDm.
+  const tappedButton = buttonId ? config.openingDm.buttons.find((b) => b.id === buttonId) : undefined;
+  const followUpText = tappedButton ? tappedButton.followUp.text : config.linkDm.text;
+  const followUpButtons = tappedButton ? tappedButton.followUp.buttons : config.linkDm.buttons;
+
   const firstName = (sender.name || sender.username || "").split(/\s+/)[0] || "there";
-  const buttons = validLinkButtons(config.linkDm.buttons);
+  const buttons = validLinkButtons(followUpButtons);
   const zernio = createZernioClient(workspace.late_api_key_encrypted);
 
   try {
@@ -335,7 +349,7 @@ export async function handleAutomationButtonTap({
       path: { conversationId: lateConversationId },
       body: {
         accountId: channel.late_account_id,
-        message: interpolate(config.linkDm.text, {
+        message: interpolate(followUpText, {
           first_name: firstName,
           name: sender.name || "",
           username: sender.username || "",

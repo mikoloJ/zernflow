@@ -97,9 +97,13 @@ describe("matchAutomation", () => {
 });
 
 describe("helpers", () => {
-  it("round-trips button payloads and rejects foreign ones", () => {
+  it("round-trips button payloads (with and without a button id) and rejects foreign ones", () => {
     const id = "3f1c2a9e-1b2c-4d5e-8f90-123456789abc";
-    expect(parseButtonPayload(buttonPayload(id))).toBe(id);
+    expect(parseButtonPayload(buttonPayload(id))).toEqual({ automationId: id, buttonId: null });
+    expect(parseButtonPayload(buttonPayload(id, "btn_abc123"))).toEqual({
+      automationId: id,
+      buttonId: "btn_abc123",
+    });
     expect(parseButtonPayload("ctd:not-a-uuid")).toBeNull();
     expect(parseButtonPayload("GET_STARTED")).toBeNull();
     expect(parseButtonPayload(undefined)).toBeNull();

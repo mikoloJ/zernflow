@@ -48,7 +48,9 @@ export function PhonePreview({ config, accountName, accountPicture, tab, onTabCh
   const keyword = config.keywordMode === "any" ? "Love this! 😍" : config.keywords[0] || "PT";
   const reply = config.publicReply.enabled ? config.publicReply.replies.find((r) => r.trim()) : undefined;
   const linkButtons = config.linkDm.buttons.filter((b) => b.label.trim());
-  const openingLinkButtons = config.openingDm.buttons.filter((b) => b.label.trim());
+  const openingButtons = config.openingDm.buttons.filter((b) => b.label.trim());
+  const firstFollowUp = openingButtons[0]?.followUp;
+  const firstFollowUpButtons = firstFollowUp?.buttons.filter((b) => b.label.trim()) ?? [];
 
   return (
     <div className="flex flex-col items-center">
@@ -72,13 +74,33 @@ export function PhonePreview({ config, accountName, accountPicture, tab, onTabCh
               </div>
               <div className="flex flex-1 flex-col gap-2 overflow-y-auto px-3 py-3">
                 {config.openingDm.enabled ? (
-                  openingLinkButtons.length ? (
-                    <Bubble>
-                      <p className="whitespace-pre-wrap">{fill(config.openingDm.text) || "Your opening message…"}</p>
-                      {openingLinkButtons.map((b, i) => (
-                        <DmButton key={i} label={b.label} link />
-                      ))}
-                    </Bubble>
+                  openingButtons.length ? (
+                    <>
+                      <Bubble>
+                        <p className="whitespace-pre-wrap">{fill(config.openingDm.text) || "Your opening message…"}</p>
+                        {openingButtons.map((b, i) => (
+                          <DmButton key={i} label={b.label} />
+                        ))}
+                      </Bubble>
+                      <div className="self-end rounded-2xl bg-violet-600 px-3 py-1.5 text-[12px]">
+                        {openingButtons[0].label || "Button"}
+                      </div>
+                      {firstFollowUpButtons.length || firstFollowUp?.text.trim() ? (
+                        <Bubble>
+                          <p className="whitespace-pre-wrap">
+                            {fill(firstFollowUp?.text || "") || "Its own follow-up DM…"}
+                          </p>
+                          {firstFollowUpButtons.map((b, i) => (
+                            <DmButton key={i} label={b.label} link />
+                          ))}
+                        </Bubble>
+                      ) : null}
+                      {openingButtons.length > 1 && (
+                        <p className="self-center text-[10px] text-white/40">
+                          Showing &quot;{openingButtons[0].label || "Button 1"}&quot;&apos;s follow-up — the other {openingButtons.length - 1} button{openingButtons.length > 2 ? "s" : ""} send their own.
+                        </p>
+                      )}
+                    </>
                   ) : (
                     <>
                       <Bubble>
@@ -91,7 +113,7 @@ export function PhonePreview({ config, accountName, accountPicture, tab, onTabCh
                     </>
                   )
                 ) : null}
-                {!(config.openingDm.enabled && openingLinkButtons.length) && (
+                {!(config.openingDm.enabled && openingButtons.length) && (
                   <Bubble>
                     <p className="whitespace-pre-wrap">{fill(config.linkDm.text) || "Your message with links…"}</p>
                     {linkButtons.map((b, i) => (
