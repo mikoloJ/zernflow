@@ -48,6 +48,7 @@ export function PhonePreview({ config, accountName, accountPicture, tab, onTabCh
   const keyword = config.keywordMode === "any" ? "Love this! 😍" : config.keywords[0] || "PT";
   const reply = config.publicReply.enabled ? config.publicReply.replies.find((r) => r.trim()) : undefined;
   const linkButtons = config.linkDm.buttons.filter((b) => b.label.trim());
+  const openingLinkButtons = config.openingDm.buttons.filter((b) => b.label.trim());
 
   return (
     <div className="flex flex-col items-center">
@@ -71,22 +72,33 @@ export function PhonePreview({ config, accountName, accountPicture, tab, onTabCh
               </div>
               <div className="flex flex-1 flex-col gap-2 overflow-y-auto px-3 py-3">
                 {config.openingDm.enabled ? (
-                  <>
+                  openingLinkButtons.length ? (
                     <Bubble>
                       <p className="whitespace-pre-wrap">{fill(config.openingDm.text) || "Your opening message…"}</p>
-                      <DmButton label={config.openingDm.buttonLabel} />
+                      {openingLinkButtons.map((b, i) => (
+                        <DmButton key={i} label={b.label} link />
+                      ))}
                     </Bubble>
-                    <div className="self-end rounded-2xl bg-violet-600 px-3 py-1.5 text-[12px]">
-                      {config.openingDm.buttonLabel || "Button"}
-                    </div>
-                  </>
+                  ) : (
+                    <>
+                      <Bubble>
+                        <p className="whitespace-pre-wrap">{fill(config.openingDm.text) || "Your opening message…"}</p>
+                        <DmButton label={config.openingDm.buttonLabel} />
+                      </Bubble>
+                      <div className="self-end rounded-2xl bg-violet-600 px-3 py-1.5 text-[12px]">
+                        {config.openingDm.buttonLabel || "Button"}
+                      </div>
+                    </>
+                  )
                 ) : null}
-                <Bubble>
-                  <p className="whitespace-pre-wrap">{fill(config.linkDm.text) || "Your message with links…"}</p>
-                  {linkButtons.map((b, i) => (
-                    <DmButton key={i} label={b.label} link />
-                  ))}
-                </Bubble>
+                {!(config.openingDm.enabled && openingLinkButtons.length) && (
+                  <Bubble>
+                    <p className="whitespace-pre-wrap">{fill(config.linkDm.text) || "Your message with links…"}</p>
+                    {linkButtons.map((b, i) => (
+                      <DmButton key={i} label={b.label} link />
+                    ))}
+                  </Bubble>
+                )}
               </div>
               <div className="m-2 rounded-full bg-white/10 px-4 py-2 text-[12px] text-white/50">Message…</div>
             </>

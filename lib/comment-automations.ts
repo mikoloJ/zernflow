@@ -117,14 +117,20 @@ export async function runCommentAutomations({
   let error: string | undefined;
   const usingOpeningDm = config.openingDm.enabled && config.openingDm.text.trim().length > 0;
   const dmMessage = usingOpeningDm ? interpolate(config.openingDm.text, vars) : interpolate(config.linkDm.text, vars);
+  // When the opening DM has its own direct link buttons configured, send
+  // those straight away instead of the single "Send it!" postback — skips
+  // the postback -> linkDm second step entirely.
+  const openingLinkButtons = usingOpeningDm ? validLinkButtons(config.openingDm.buttons) : [];
   const dmButtons = usingOpeningDm
-    ? [
-        {
-          type: "postback",
-          title: (config.openingDm.buttonLabel || "Send it!").slice(0, 20),
-          payload: buttonPayload(automation.id),
-        },
-      ]
+    ? openingLinkButtons.length
+      ? openingLinkButtons
+      : [
+          {
+            type: "postback",
+            title: (config.openingDm.buttonLabel || "Send it!").slice(0, 20),
+            payload: buttonPayload(automation.id),
+          },
+        ]
     : validLinkButtons(config.linkDm.buttons);
   try {
     await zernio.comments.sendPrivateReplyToComment({

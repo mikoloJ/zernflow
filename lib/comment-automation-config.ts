@@ -27,7 +27,15 @@ export interface AutomationConfig {
 
   publicReply: { enabled: boolean; replies: string[] };
 
-  openingDm: { enabled: boolean; text: string; buttonLabel: string };
+  openingDm: {
+    enabled: boolean;
+    text: string;
+    buttonLabel: string;
+    /** Up to 3 direct link buttons. When set, these are sent on the opening
+     * DM itself instead of the single "Send it!" postback button — skipping
+     * the postback->linkDm second step entirely. */
+    buttons: LinkButton[];
+  };
 
   linkDm: { text: string; buttons: LinkButton[] };
 }
@@ -46,6 +54,7 @@ export const DEFAULT_CONFIG: AutomationConfig = {
     enabled: true,
     text: "Hey {{first_name}}! Thanks for your interest 🙌\n\nTap below and I'll send you the details.",
     buttonLabel: "Send it!",
+    buttons: [],
   },
   linkDm: { text: "Here you go 👇", buttons: [{ label: "Open link", url: "" }] },
 };
@@ -58,7 +67,11 @@ export function parseConfig(raw: Json | null | undefined): AutomationConfig {
     postIds: Array.isArray(c.postIds) ? c.postIds : [],
     keywords: Array.isArray(c.keywords) ? c.keywords : [],
     publicReply: { ...DEFAULT_CONFIG.publicReply, ...(c.publicReply ?? {}) },
-    openingDm: { ...DEFAULT_CONFIG.openingDm, ...(c.openingDm ?? {}) },
+    openingDm: {
+      ...DEFAULT_CONFIG.openingDm,
+      ...(c.openingDm ?? {}),
+      buttons: Array.isArray(c.openingDm?.buttons) ? c.openingDm.buttons : [],
+    },
     linkDm: { ...DEFAULT_CONFIG.linkDm, ...(c.linkDm ?? {}) },
   };
 }

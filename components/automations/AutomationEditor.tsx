@@ -65,9 +65,16 @@ export function AutomationEditor({ workspaceId, channels, initial }: AutomationE
     if (config.postMode === "specific" && config.postIds.length === 0) p.push("Pick at least one post.");
     if (config.keywordMode === "specific" && splitKeywords(keywordInput).length === 0)
       p.push("Add at least one keyword.");
+    const openingHasLinkButtons = config.openingDm.buttons.some((b) => b.label.trim() || b.url.trim());
     if (config.openingDm.enabled && !config.openingDm.text.trim()) p.push("Write the opening DM.");
-    if (config.openingDm.enabled && !config.openingDm.buttonLabel.trim()) p.push("Give the opening DM a button label.");
+    if (config.openingDm.enabled && !openingHasLinkButtons && !config.openingDm.buttonLabel.trim())
+      p.push("Give the opening DM a button label.");
     if (!config.linkDm.text.trim()) p.push("Write the DM with the link.");
+    config.openingDm.buttons.forEach((b, i) => {
+      if ((b.label.trim() || b.url.trim()) && !/^https?:\/\/\S+\.\S+/i.test(b.url.trim()))
+        p.push(`Opening DM button ${i + 1} needs a full link starting with https://`);
+      if (b.url.trim() && !b.label.trim()) p.push(`Opening DM button ${i + 1} needs a label.`);
+    });
     config.linkDm.buttons.forEach((b, i) => {
       if ((b.label.trim() || b.url.trim()) && !/^https?:\/\/\S+\.\S+/i.test(b.url.trim()))
         p.push(`Button ${i + 1} needs a full link starting with https://`);
@@ -145,6 +152,12 @@ export function AutomationEditor({ workspaceId, channels, initial }: AutomationE
     update("linkDm", {
       ...config.linkDm,
       buttons: config.linkDm.buttons.map((b, j) => (j === i ? { ...b, ...patch } : b)),
+    });
+
+  const setOpeningButton = (i: number, patch: Partial<LinkButton>) =>
+    update("openingDm", {
+      ...config.openingDm,
+      buttons: config.openingDm.buttons.map((b, j) => (j === i ? { ...b, ...patch } : b)),
     });
 
   return (
@@ -342,15 +355,72 @@ export function AutomationEditor({ workspaceId, channels, initial }: AutomationE
                         className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm"
                       />
                       <CharCount value={config.openingDm.text} max={1000} />
-                      <input
-                        value={config.openingDm.buttonLabel}
-                        onChange={(e) => update("openingDm", { ...config.openingDm, buttonLabel: e.target.value.slice(0, BUTTON_MAX) })}
-                        placeholder="Button, e.g. I am ready!"
-                        className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm"
-                      />
-                      <p className="text-xs text-muted-foreground">
-                        When they tap the button, the next DM with your links is sent. Tapping also opens a 24-hour window, so later messages can reach them.
-                      </p>
+
+                      {config.openingDm.buttons.length === 0 && (
+                        <>
+                          <input
+                            value={config.openingDm.buttonLabel}
+                            onChange={(e) => update("openingDm", { ...config.openingDm, buttonLabel: e.target.value.slice(0, BUTTON_MAX) })}
+                            placeholder="Button, e.g. I am ready!"
+                            className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm"
+                          />
+                          <p className="text-xs text-muted-foreground">
+                            When they tap the button, the next DM with your links is sent. Tapping also opens a 24-hour window, so later messages can reach them.
+                          </p>
+                        </>
+                      )}
+
+                      <div className="space-y-2 pt-1">
+                        {config.openingDm.buttons.map((b, i) => (
+                          <div key={i} className="rounded-lg border border-border bg-card p-2">
+                            <div className="flex items-center gap-1.5">
+                              <input
+                                value={b.label}
+                                onChange={(e) => setOpeningButton(i, { label: e.target.value.slice(0, BUTTON_MAX) })}
+                                placeholder="Button label, e.g. Enrol Now"
+                                className="min-w-0 flex-1 bg-transparent px-1 py-1 text-sm focus:outline-none"
+                              />
+                              <Link2 className="h-3.5 w-3.5 text-primary" />
+                              <IconButton
+                                label="Remove button"
+                                onClick={() =>
+                                  update("openingDm", {
+                                    ...config.openingDm,
+                                    buttons: config.openingDm.buttons.filter((_, j) => j !== i),
+                                  })
+                                }
+                              >
+                                <X className="h-3.5 w-3.5" />
+                              </IconButton>
+                            </div>
+                            <input
+                              value={b.url}
+                              onChange={(e) => setOpeningButton(i, { url: e.target.value })}
+                              placeholder="https://…"
+                              className="mt-1 w-full rounded-md bg-muted px-2 py-1 text-xs focus:outline-none"
+                            />
+                          </div>
+                        ))}
+                        {config.openingDm.buttons.length < 3 && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              update("openingDm", {
+                                ...config.openingDm,
+                                buttons: [...config.openingDm.buttons, { label: "", url: "" }],
+                              })
+                            }
+                            className="flex items-center gap-1 text-xs font-medium text-primary"
+                          >
+                            <Plus className="h-3.5 w-3.5" /> Add a link button (max 3)
+                          </button>
+                        )}
+                        {config.openingDm.buttons.length > 0 && (
+                          <p className="text-xs text-muted-foreground">
+                            Link buttons go out on this DM directly — the &quot;Send it!&quot; button above is skipped while any are set.
+                          </p>
+                        )}
+                      </div>
                     </div>
                   ) : (
                     <p className="mt-2 text-xs text-muted-foreground">
