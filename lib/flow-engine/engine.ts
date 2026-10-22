@@ -626,6 +626,18 @@ async function executeSendMessage(
         body: body as Parameters<typeof zernio.messages.sendInboxMessage>[0]["body"],
       });
 
+      // The SDK only throws when `throwOnError` is passed (it isn't, here) —
+      // a rejected send otherwise comes back as `response.error` with no
+      // exception at all. Without this check the code below unconditionally
+      // recorded the message as "sent" and logged message_sent even when
+      // Zernio rejected it (e.g. "not the thread owner"), so a real failure
+      // never reached the catch block's private-reply fallback, or even got
+      // logged as a failure — it just silently never arrived.
+      if (response.error) {
+        const e = response.error as { error?: string; message?: string };
+        throw new Error(e?.error || e?.message || "The platform rejected the message");
+      }
+
       // Store outbound message (with any buttons/quick replies, so the inbox
       // can render the message exactly as the contact saw it).
       const richParts: Array<Record<string, unknown>> = [...(attachments ?? [])];
