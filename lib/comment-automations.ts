@@ -142,14 +142,13 @@ export async function runCommentAutomations({
     error = err instanceof Error ? err.message : String(err);
     console.error(`[automation ${automation.id}] private reply failed:`, err);
 
-    // Meta's private-reply endpoint allows exactly one reply per comment,
-    // ever — a real platform limit, not a bug here. It fires when the same
-    // person comments more than once (their first comment already used up
-    // this thread's one shot). When that happens they usually already have
-    // an open conversation from the earlier send, so fall back to a normal
-    // inbox message on that conversation rather than silently dropping the
-    // DM the automation promised.
-    if (contact && /private reply|one private reply per comment/i.test(error)) {
+    // Whatever just went wrong with the private reply — the comment's one
+    // shot already used up by an earlier comment from the same person, a
+    // closed 24h window, a content restriction, anything — don't leave the
+    // contact with nothing. If they already have an open conversation from
+    // an earlier send, fall back to a normal inbox message on it rather than
+    // silently dropping the DM the automation promised.
+    if (contact) {
       const { data: existingConversation } = await supabase
         .from("conversations")
         .select("late_conversation_id")

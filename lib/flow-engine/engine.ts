@@ -458,15 +458,6 @@ function matchTappedButton(
   return null;
 }
 
-/** Matches Zernio's error for Meta subcode 2534022 ("This message is sent
- * outside of allowed window") — the standard 24h customer-service window has
- * closed on a conversation. Text-matched like the ownership-error check in
- * app/api/v1/messages/route.ts, since Zernio throws rather than returning
- * this as a typed res.error. */
-function isOutsideMessagingWindowError(message: string): boolean {
-  return /outside of allowed window|2534022/i.test(message);
-}
-
 async function sendFirstMessageAsPrivateReply(
   supabase: SupabaseClient<Database>,
   zernio: ReturnType<typeof createZernioClient>,
@@ -676,17 +667,16 @@ async function executeSendMessage(
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
 
-      // A repeat commenter (someone who already has a conversation on file)
-      // closes Meta's standard 24h messaging window like anyone else, so the
-      // regular inbox send above gets rejected — even though their *new*
-      // comment earns this account a fresh private reply, independent of
-      // that window. Retry this one message that way instead of dropping it:
-      // only the first message in the node, since a comment allows exactly
-      // one private reply ever, and only when this send actually originated
-      // from a comment (comment_id/post_id present).
+      // Anyone who comments has a standing claim on one private reply to that
+      // comment, independent of whatever just went wrong on the regular DM
+      // send (closed 24h window, a stale conversation id, anything else) — so
+      // whatever the reason this send failed, fall back to the private-reply
+      // endpoint for this one message before giving up on the contact
+      // entirely. Only the first message in the node (one private reply per
+      // comment, ever), and only when this send actually originated from a
+      // comment (comment_id/post_id present).
       if (
         msg === data.messages[0] &&
-        isOutsideMessagingWindowError(errorMessage) &&
         context.variables?.comment_id &&
         context.variables?.post_id &&
         lateAccountId
@@ -735,7 +725,7 @@ async function executeSendMessage(
 
           continue;
         } catch (retryError) {
-          console.error("Private-reply retry after messaging-window error also failed:", retryError);
+          console.error("Private-reply fallback after send failure also failed:", retryError);
         }
       }
 
