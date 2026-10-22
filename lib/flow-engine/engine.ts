@@ -458,6 +458,15 @@ function matchTappedButton(
   return null;
 }
 
+/** Matches Zernio's error for Meta subcode 2534022 ("This message is sent
+ * outside of allowed window") — the standard 24h customer-service window has
+ * closed on a conversation. Text-matched like the ownership-error check in
+ * app/api/v1/messages/route.ts, since Zernio throws rather than returning
+ * this as a typed res.error. */
+function isOutsideMessagingWindowError(message: string): boolean {
+  return /outside of allowed window|2534022/i.test(message);
+}
+
 async function sendFirstMessageAsPrivateReply(
   supabase: SupabaseClient<Database>,
   zernio: ReturnType<typeof createZernioClient>,
@@ -665,6 +674,71 @@ async function executeSendMessage(
         })
         .eq("id", context.conversationId);
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+
+      // A repeat commenter (someone who already has a conversation on file)
+      // closes Meta's standard 24h messaging window like anyone else, so the
+      // regular inbox send above gets rejected — even though their *new*
+      // comment earns this account a fresh private reply, independent of
+      // that window. Retry this one message that way instead of dropping it:
+      // only the first message in the node, since a comment allows exactly
+      // one private reply ever, and only when this send actually originated
+      // from a comment (comment_id/post_id present).
+      if (
+        msg === data.messages[0] &&
+        isOutsideMessagingWindowError(errorMessage) &&
+        context.variables?.comment_id &&
+        context.variables?.post_id &&
+        lateAccountId
+      ) {
+        try {
+          const reply = await zernio.comments.sendPrivateReplyToComment({
+            path: {
+              postId: String(context.variables.post_id),
+              commentId: String(context.variables.comment_id),
+            },
+            body: {
+              accountId: lateAccountId,
+              message: text,
+              ...(adapted.template ? {} : {
+                ...(adapted.buttons?.length ? { buttons: adapted.buttons } : {}),
+                ...(adapted.quickReplies?.length ? { quickReplies: adapted.quickReplies } : {}),
+              }),
+            } as never,
+          });
+
+          await supabase.from("messages").insert({
+            conversation_id: context.conversationId,
+            direction: "outbound",
+            text,
+            sent_by_flow_id: context.flowId,
+            sent_by_node_id: null,
+            platform_message_id: (reply.data as { messageId?: string } | undefined)?.messageId || null,
+            status: "sent",
+          });
+
+          await supabase.from("analytics_events").insert({
+            workspace_id: context.workspaceId,
+            flow_id: context.flowId,
+            contact_id: context.contactId,
+            event_type: "message_sent",
+          });
+
+          await supabase
+            .from("conversations")
+            .update({
+              last_message_at: new Date().toISOString(),
+              last_message_preview: messagePreview(text),
+              unread_count: 0,
+            })
+            .eq("id", context.conversationId);
+
+          continue;
+        } catch (retryError) {
+          console.error("Private-reply retry after messaging-window error also failed:", retryError);
+        }
+      }
+
       console.error("Failed to send message:", error);
       await supabase.from("messages").insert({
         conversation_id: context.conversationId,
@@ -679,7 +753,7 @@ async function executeSendMessage(
         flow_id: context.flowId,
         contact_id: context.contactId,
         event_type: "message_failed",
-        metadata: { error: error instanceof Error ? error.message : "Unknown error" },
+        metadata: { error: errorMessage },
       });
     }
 
