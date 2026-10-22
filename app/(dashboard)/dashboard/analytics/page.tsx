@@ -21,6 +21,7 @@ export default async function AnalyticsPage() {
     flowsListRes,
     contactEvents,
     msgEvents,
+    commentLogsRes,
   ] = await Promise.all([
     supabase
       .from("flows")
@@ -79,6 +80,21 @@ export default async function AnalyticsPage() {
       .gte("created_at", thirtyDaysAgo)
       .lte("created_at", now)
       .order("created_at"),
+    supabase
+      .from("comment_logs")
+      .select("matched_trigger_id, matched_automation_id, dm_sent")
+      .eq("workspace_id", workspace.id)
+      .gte("created_at", thirtyDaysAgo)
+      .lte("created_at", now)
+      .or("matched_trigger_id.not.is.null,matched_automation_id.not.is.null"),
+  ]);
+
+  const [{ data: commentTriggers }, { data: commentAutomations }] = await Promise.all([
+    supabase.from("triggers").select("id, flow_id").eq("type", "comment_keyword"),
+    supabase
+      .from("comment_automations")
+      .select("id, name")
+      .eq("workspace_id", workspace.id),
   ]);
 
   // Build flow performance data
@@ -103,6 +119,46 @@ export default async function AnalyticsPage() {
     })
     .sort((a, b) => b.starts - a.starts)
     .slice(0, 10);
+
+  // Build comment-trigger delivery stats: how many commenters matched a
+  // flow trigger or comment automation, and of those, how many actually got
+  // the DM vs. didn't (comment_logs.dm_sent), per trigger/automation.
+  const triggerFlowName = new Map(
+    (commentTriggers ?? []).map((t) => [t.id, flowNames.get(t.flow_id) ?? "Unknown Flow"])
+  );
+  const automationName = new Map((commentAutomations ?? []).map((a) => [a.id, a.name]));
+
+  interface DeliveryAgg {
+    id: string;
+    name: string;
+    kind: "flow" | "automation";
+    matched: number;
+    sent: number;
+  }
+  const deliveryById = new Map<string, DeliveryAgg>();
+  for (const row of commentLogsRes.data ?? []) {
+    const key = row.matched_trigger_id
+      ? `trigger:${row.matched_trigger_id}`
+      : row.matched_automation_id
+        ? `automation:${row.matched_automation_id}`
+        : null;
+    if (!key) continue;
+    const name = row.matched_trigger_id
+      ? triggerFlowName.get(row.matched_trigger_id) ?? "Unknown Flow"
+      : automationName.get(row.matched_automation_id!) ?? "Unknown Automation";
+    const kind: DeliveryAgg["kind"] = row.matched_trigger_id ? "flow" : "automation";
+    const existing = deliveryById.get(key) ?? { id: key, name, kind, matched: 0, sent: 0 };
+    existing.matched++;
+    if (row.dm_sent) existing.sent++;
+    deliveryById.set(key, existing);
+  }
+  const commentDelivery = Array.from(deliveryById.values())
+    .map((d) => ({
+      ...d,
+      notSent: d.matched - d.sent,
+      deliveryRate: d.matched > 0 ? Math.round((d.sent / d.matched) * 100) : 0,
+    }))
+    .sort((a, b) => b.matched - a.matched);
 
   // Build daily contact growth
   const growthByDay = new Map<string, number>();
@@ -150,6 +206,7 @@ export default async function AnalyticsPage() {
           messagesFailed: failedRes.count ?? 0,
         },
         flowPerformance,
+        commentDelivery,
         contactGrowth,
         messageVolume,
       }}

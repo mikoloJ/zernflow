@@ -34,6 +34,16 @@ interface FlowPerformance {
   dropOffRate: number;
 }
 
+interface CommentDelivery {
+  id: string;
+  name: string;
+  kind: "flow" | "automation";
+  matched: number;
+  sent: number;
+  notSent: number;
+  deliveryRate: number;
+}
+
 interface DailyCount {
   date: string;
   count: number;
@@ -48,6 +58,7 @@ interface DailyMessages {
 interface AnalyticsData {
   stats: Stats;
   flowPerformance: FlowPerformance[];
+  commentDelivery: CommentDelivery[];
   contactGrowth: DailyCount[];
   messageVolume: DailyMessages[];
 }
@@ -207,6 +218,7 @@ export function AnalyticsView({
 
   const [stats, setStats] = useState<Stats>(initialData.stats);
   const [flowPerformance, setFlowPerformance] = useState<FlowPerformance[]>(initialData.flowPerformance);
+  const [commentDelivery, setCommentDelivery] = useState<CommentDelivery[]>(initialData.commentDelivery);
   const [contactGrowth, setContactGrowth] = useState<DailyCount[]>(initialData.contactGrowth);
   const [messageVolume, setMessageVolume] = useState<DailyMessages[]>(initialData.messageVolume);
 
@@ -216,6 +228,7 @@ export function AnalyticsView({
       // Reset to server-provided data
       setStats(initialData.stats);
       setFlowPerformance(initialData.flowPerformance);
+      setCommentDelivery(initialData.commentDelivery);
       setContactGrowth(initialData.contactGrowth);
       setMessageVolume(initialData.messageVolume);
       return;
@@ -293,6 +306,19 @@ export function AnalyticsView({
           .order("created_at"),
       ]);
 
+      const [{ data: commentLogs }, { data: commentTriggers }, { data: commentAutomations }] =
+        await Promise.all([
+          supabase
+            .from("comment_logs")
+            .select("matched_trigger_id, matched_automation_id, dm_sent")
+            .eq("workspace_id", workspaceId)
+            .gte("created_at", range.start)
+            .lte("created_at", range.end)
+            .or("matched_trigger_id.not.is.null,matched_automation_id.not.is.null"),
+          supabase.from("triggers").select("id, flow_id").eq("type", "comment_keyword"),
+          supabase.from("comment_automations").select("id, name").eq("workspace_id", workspaceId),
+        ]);
+
       setStats({
         totalFlows: flowsRes.count ?? 0,
         totalContacts: contactsRes.count ?? 0,
@@ -323,6 +349,42 @@ export function AnalyticsView({
         .sort((a, b) => b.starts - a.starts)
         .slice(0, 10);
       setFlowPerformance(perfData);
+
+      // Comment-trigger delivery: who matched a flow trigger / comment
+      // automation, and of those, who actually got the DM.
+      const triggerFlowName = new Map(
+        (commentTriggers ?? []).map((t) => [t.id, flowNames.get(t.flow_id) ?? "Unknown Flow"])
+      );
+      const automationName = new Map((commentAutomations ?? []).map((a) => [a.id, a.name]));
+      const deliveryById = new Map<
+        string,
+        { id: string; name: string; kind: "flow" | "automation"; matched: number; sent: number }
+      >();
+      for (const row of commentLogs ?? []) {
+        const key = row.matched_trigger_id
+          ? `trigger:${row.matched_trigger_id}`
+          : row.matched_automation_id
+            ? `automation:${row.matched_automation_id}`
+            : null;
+        if (!key) continue;
+        const name = row.matched_trigger_id
+          ? triggerFlowName.get(row.matched_trigger_id) ?? "Unknown Flow"
+          : automationName.get(row.matched_automation_id!) ?? "Unknown Automation";
+        const kind: "flow" | "automation" = row.matched_trigger_id ? "flow" : "automation";
+        const existing = deliveryById.get(key) ?? { id: key, name, kind, matched: 0, sent: 0 };
+        existing.matched++;
+        if (row.dm_sent) existing.sent++;
+        deliveryById.set(key, existing);
+      }
+      setCommentDelivery(
+        Array.from(deliveryById.values())
+          .map((d) => ({
+            ...d,
+            notSent: d.matched - d.sent,
+            deliveryRate: d.matched > 0 ? Math.round((d.sent / d.matched) * 100) : 0,
+          }))
+          .sort((a, b) => b.matched - a.matched)
+      );
 
       // Contact growth by day
       const growthByDay = new Map<string, number>();
@@ -630,6 +692,91 @@ export function AnalyticsView({
                               <TrendingUp className="h-3.5 w-3.5" />
                             )}
                             {flow.dropOffRate}%
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            {/* Comment-trigger delivery table */}
+            <div className="rounded-xl border border-border bg-card">
+              <div className="border-b border-border px-6 py-4">
+                <h3 className="text-sm font-semibold">Comment Trigger Delivery</h3>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Per flow trigger / comment automation: how many commenters matched, and how many actually got the DM.
+                </p>
+              </div>
+              {commentDelivery.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-12">
+                  <Send className="h-8 w-8 text-muted-foreground/40" />
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    No comment-triggered DMs in this period
+                  </p>
+                </div>
+              ) : (
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-border bg-muted/50 text-left">
+                      <th className="px-6 py-3 text-xs font-medium uppercase text-muted-foreground">
+                        Trigger / Automation
+                      </th>
+                      <th className="px-4 py-3 text-xs font-medium uppercase text-muted-foreground text-right">
+                        Comments Matched
+                      </th>
+                      <th className="px-4 py-3 text-xs font-medium uppercase text-muted-foreground text-right">
+                        DMs Sent
+                      </th>
+                      <th className="px-4 py-3 text-xs font-medium uppercase text-muted-foreground text-right">
+                        Not Delivered
+                      </th>
+                      <th className="px-6 py-3 text-xs font-medium uppercase text-muted-foreground text-right">
+                        Delivery Rate
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {commentDelivery.map((d) => (
+                      <tr
+                        key={d.id}
+                        className="border-b border-border last:border-0 transition-colors hover:bg-accent/50"
+                      >
+                        <td className="px-6 py-3">
+                          <span className="text-sm font-medium">{d.name}</span>
+                          <span className="ml-2 text-xs text-muted-foreground">
+                            {d.kind === "flow" ? "Flow" : "Automation"}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <span className="text-sm text-muted-foreground">{d.matched}</span>
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <span className="text-sm text-green-600">{d.sent}</span>
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <span className={cn("text-sm", d.notSent > 0 ? "text-red-600" : "text-muted-foreground")}>
+                            {d.notSent}
+                          </span>
+                        </td>
+                        <td className="px-6 py-3 text-right">
+                          <span
+                            className={cn(
+                              "inline-flex items-center gap-1 text-sm font-medium",
+                              d.deliveryRate < 50
+                                ? "text-red-600"
+                                : d.deliveryRate < 90
+                                  ? "text-yellow-600"
+                                  : "text-green-600"
+                            )}
+                          >
+                            {d.deliveryRate < 50 ? (
+                              <TrendingDown className="h-3.5 w-3.5" />
+                            ) : (
+                              <TrendingUp className="h-3.5 w-3.5" />
+                            )}
+                            {d.deliveryRate}%
                           </span>
                         </td>
                       </tr>
