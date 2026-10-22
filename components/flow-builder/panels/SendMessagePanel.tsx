@@ -242,6 +242,7 @@ function MessageEditor({
   // Quick replies
   const addQuickReply = useCallback(() => {
     const replies = message.quickReplies || [];
+    if (replies.length >= 13) return;
     onChange({
       ...message,
       quickReplies: [...replies, { id: generateHandleId(), title: "", payload: "" }],
@@ -268,6 +269,7 @@ function MessageEditor({
   // Buttons
   const addButton = useCallback(() => {
     const buttons = message.buttons || [];
+    if (buttons.length >= 3) return;
     onChange({
       ...message,
       buttons: [...buttons, { id: generateHandleId(), title: "", type: "postback", payload: "" }],
@@ -424,30 +426,37 @@ function MessageEditor({
                 <div className="flex items-center gap-1.5">
                   <MessageCircle className="h-3 w-3 text-muted-foreground/60" />
                   <label className="text-xs font-medium text-muted-foreground">
-                    Quick Replies
+                    Quick Replies ({(message.quickReplies || []).length}/13)
                   </label>
                 </div>
-                <button
-                  type="button"
-                  onClick={addQuickReply}
-                  className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium text-blue-500 hover:bg-blue-50"
-                >
-                  <Plus className="h-3 w-3" />
-                  Add
-                </button>
+                {(message.quickReplies || []).length < 13 && (
+                  <button
+                    type="button"
+                    onClick={addQuickReply}
+                    className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium text-blue-500 hover:bg-blue-50"
+                  >
+                    <Plus className="h-3 w-3" />
+                    Add
+                  </button>
+                )}
               </div>
               <p className="mb-1.5 flex items-center gap-1 text-[11px] text-muted-foreground/60">
                 <Link2 className="h-2.5 w-2.5" />
                 Each quick reply gets its own connector dot on the node — drag from it
-                to send that specific reply down its own path.
+                to send that specific reply down its own path. Meta caps these at 13
+                per message and 20 characters per label; on Instagram they're also
+                invisible to people who don't yet follow the account (their reply lands
+                in Message Requests, where quick replies don't render) — use Buttons or
+                a Carousel card instead if that matters here.
               </p>
               {(message.quickReplies || []).map((qr, i) => (
                 <div key={i} className="mb-2 flex items-center gap-2">
                   <input
                     type="text"
                     value={qr.title}
-                    onChange={(e) => updateQuickReply(i, { ...qr, title: e.target.value })}
-                    placeholder="Label"
+                    onChange={(e) => updateQuickReply(i, { ...qr, title: e.target.value.slice(0, 20) })}
+                    placeholder="Label (max 20 chars)"
+                    maxLength={20}
                     className="flex-1 rounded border border-border bg-card px-2 py-1.5 text-xs text-foreground placeholder:text-muted-foreground/60 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                   />
                   <input
@@ -474,23 +483,27 @@ function MessageEditor({
                 <div className="flex items-center gap-1.5">
                   <MousePointer className="h-3 w-3 text-muted-foreground/60" />
                   <label className="text-xs font-medium text-muted-foreground">
-                    Buttons
+                    Buttons ({(message.buttons || []).length}/3)
                   </label>
                 </div>
-                <button
-                  type="button"
-                  onClick={addButton}
-                  className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium text-blue-500 hover:bg-blue-50"
-                >
-                  <Plus className="h-3 w-3" />
-                  Add
-                </button>
+                {(message.buttons || []).length < 3 && (
+                  <button
+                    type="button"
+                    onClick={addButton}
+                    className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium text-blue-500 hover:bg-blue-50"
+                  >
+                    <Plus className="h-3 w-3" />
+                    Add
+                  </button>
+                )}
               </div>
               <p className="mb-1.5 flex items-center gap-1 text-[11px] text-muted-foreground/60">
                 <Link2 className="h-2.5 w-2.5" />
                 Postback buttons each get their own connector dot on the node, so you
                 can send every button to a different next step. URL buttons just open
-                the link and have nothing to connect.
+                the link and have nothing to connect. Meta caps these at 3 per message
+                and 20 characters per label — switch to Carousel above for more options
+                (up to 10 cards, 3 buttons each).
               </p>
               {(message.buttons || []).map((btn, i) => (
                 <div
@@ -501,8 +514,9 @@ function MessageEditor({
                     <input
                       type="text"
                       value={btn.title}
-                      onChange={(e) => updateButton(i, { ...btn, title: e.target.value })}
-                      placeholder="Button label"
+                      onChange={(e) => updateButton(i, { ...btn, title: e.target.value.slice(0, 20) })}
+                      placeholder="Button label (max 20 chars)"
+                      maxLength={20}
                       className="flex-1 rounded border border-border bg-card px-2 py-1.5 text-xs text-foreground placeholder:text-muted-foreground/60 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                     />
                     <button
@@ -765,9 +779,10 @@ function CarouselCardEditor({
                   type="text"
                   value={btn.title}
                   onChange={(e) =>
-                    updateButton(i, { ...btn, title: e.target.value })
+                    updateButton(i, { ...btn, title: e.target.value.slice(0, 20) })
                   }
-                  placeholder="Button label"
+                  placeholder="Button label (max 20 chars)"
+                  maxLength={20}
                   className="flex-1 rounded border border-border bg-card px-2 py-1 text-[11px] text-foreground placeholder:text-muted-foreground/60 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                 />
                 <button
