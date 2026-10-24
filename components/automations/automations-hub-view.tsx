@@ -17,6 +17,8 @@ import {
   Zap,
   BarChart3,
   Copy,
+  Search,
+  ArrowUpDown,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
@@ -63,6 +65,45 @@ interface HubItem {
   platforms: string[];
   stat: string;
   href: string;
+  location: string | null;
+  course: string | null;
+}
+
+type SortKey = "updated_desc" | "updated_asc" | "name_asc" | "name_desc" | "status";
+
+const sortOptions: { value: SortKey; label: string }[] = [
+  { value: "updated_desc", label: "Last updated (newest)" },
+  { value: "updated_asc", label: "Last updated (oldest)" },
+  { value: "name_asc", label: "Name (A–Z)" },
+  { value: "name_desc", label: "Name (Z–A)" },
+  { value: "status", label: "Status" },
+];
+
+const statusOrder: Record<StatusKind, number> = { live: 0, draft: 1, paused: 2, archived: 3 };
+
+// Pulls a "location" or "course" facet out of the item's name so the list can be
+// sorted/filtered by them without needing dedicated columns. Matches the naming
+// conventions used by flows like "City saved: Lagos" or "Course: Personal Trainer".
+function deriveLocation(name: string): string | null {
+  const m = name.match(/^City saved:\s*(.+)$/i);
+  if (m) return m[1].trim();
+  if (/^City waitlist/i.test(name)) return "Multiple cities";
+  return null;
+}
+
+function deriveCourse(name: string): string | null {
+  const patterns = [
+    /^Course:\s*(.+)$/i,
+    /^Comment → DM:\s*(.+)$/i,
+    /^Payment plan:\s*(.+)$/i,
+    /^Payment options:\s*(.+)$/i,
+    /^Notify me:\s*(.+)$/i,
+  ];
+  for (const p of patterns) {
+    const m = name.match(p);
+    if (m) return m[1].trim();
+  }
+  return null;
 }
 
 const statusConfig: Record<StatusKind, { label: string; classes: string }> = {
@@ -116,6 +157,11 @@ export function AutomationsHubView({
   const [insightsTarget, setInsightsTarget] = useState<HubItem | null>(null);
   const [deleteItemTarget, setDeleteItemTarget] = useState<HubItem | null>(null);
   const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | StatusKind>("all");
+  const [locationFilter, setLocationFilter] = useState<"all" | string>("all");
+  const [courseFilter, setCourseFilter] = useState<"all" | string>("all");
+  const [sortBy, setSortBy] = useState<SortKey>("updated_desc");
 
   const channelById = useMemo(() => new Map(channels.map((c) => [c.id, c])), [channels]);
 
@@ -142,6 +188,8 @@ export function AutomationsHubView({
       platforms: Array.from(flowPlatforms.get(f.id) ?? []),
       stat: `${Array.isArray(f.nodes) ? f.nodes.length : 0} nodes`,
       href: `/dashboard/flows/${f.id}`,
+      location: deriveLocation(f.name),
+      course: deriveCourse(f.name),
     }));
 
     const commentItems: HubItem[] = commentAutomations.map((a) => {
@@ -156,19 +204,61 @@ export function AutomationsHubView({
         platforms: channel ? [channel.platform] : [],
         stat: `${a.comments_matched} comments · ${a.opening_dms_sent + a.link_dms_sent} DMs · ${a.button_taps} taps`,
         href: `/dashboard/automations/${a.id}`,
+        location: deriveLocation(a.name),
+        course: deriveCourse(a.name),
       };
     });
 
-    return [...flowItems, ...commentItems].sort(
-      (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
-    );
+    return [...flowItems, ...commentItems];
   }, [flows, commentAutomations, flowPlatforms, channelById]);
 
-  const visibleItems = items.filter((item) => {
+  const locationOptions = useMemo(
+    () => Array.from(new Set(items.map((i) => i.location).filter((v): v is string => !!v))).sort(),
+    [items],
+  );
+  const courseOptions = useMemo(
+    () => Array.from(new Set(items.map((i) => i.course).filter((v): v is string => !!v))).sort(),
+    [items],
+  );
+
+  const folderFilteredItems = items.filter((item) => {
     if (activeFolder === "all") return true;
     if (activeFolder === "unfiled") return !item.folderId;
     return item.folderId === activeFolder;
   });
+
+  const visibleItems = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const filtered = folderFilteredItems.filter((item) => {
+      if (q && !item.name.toLowerCase().includes(q)) return false;
+      if (statusFilter !== "all" && item.status !== statusFilter) return false;
+      if (locationFilter !== "all" && item.location !== locationFilter) return false;
+      if (courseFilter !== "all" && item.course !== courseFilter) return false;
+      return true;
+    });
+
+    const sorted = [...filtered];
+    switch (sortBy) {
+      case "name_asc":
+        sorted.sort((a, b) => a.name.localeCompare(b.name));
+        break;
+      case "name_desc":
+        sorted.sort((a, b) => b.name.localeCompare(a.name));
+        break;
+      case "status":
+        sorted.sort(
+          (a, b) =>
+            statusOrder[a.status] - statusOrder[b.status] || a.name.localeCompare(b.name),
+        );
+        break;
+      case "updated_asc":
+        sorted.sort((a, b) => new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime());
+        break;
+      default:
+        sorted.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+    }
+    return sorted;
+  }, [folderFilteredItems, search, statusFilter, locationFilter, courseFilter, sortBy]);
 
   const folderCounts = useMemo(() => {
     const counts = new Map<string, number>();
@@ -453,13 +543,98 @@ export function AutomationsHubView({
           </div>
         </div>
 
+        <div className="flex flex-wrap items-center gap-2 border-b border-border px-8 py-3">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search by name…"
+              className="w-56 rounded-md border border-border bg-background py-1.5 pl-8 pr-3 text-xs"
+            />
+          </div>
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value as "all" | StatusKind)}
+            className="rounded-md border border-border bg-background px-2 py-1.5 text-xs"
+          >
+            <option value="all">All statuses</option>
+            <option value="live">Active</option>
+            <option value="draft">Draft</option>
+            <option value="paused">Paused</option>
+            <option value="archived">Archived</option>
+          </select>
+          {locationOptions.length > 0 && (
+            <select
+              value={locationFilter}
+              onChange={(e) => setLocationFilter(e.target.value)}
+              className="rounded-md border border-border bg-background px-2 py-1.5 text-xs"
+            >
+              <option value="all">All locations</option>
+              {locationOptions.map((loc) => (
+                <option key={loc} value={loc}>
+                  {loc}
+                </option>
+              ))}
+            </select>
+          )}
+          {courseOptions.length > 0 && (
+            <select
+              value={courseFilter}
+              onChange={(e) => setCourseFilter(e.target.value)}
+              className="rounded-md border border-border bg-background px-2 py-1.5 text-xs"
+            >
+              <option value="all">All courses</option>
+              {courseOptions.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+          )}
+          <div className="ml-auto flex items-center gap-1.5">
+            <ArrowUpDown className="h-3.5 w-3.5 text-muted-foreground" />
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as SortKey)}
+              className="rounded-md border border-border bg-background px-2 py-1.5 text-xs"
+            >
+              {sortOptions.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          {(search || statusFilter !== "all" || locationFilter !== "all" || courseFilter !== "all") && (
+            <button
+              onClick={() => {
+                setSearch("");
+                setStatusFilter("all");
+                setLocationFilter("all");
+                setCourseFilter("all");
+              }}
+              className="text-xs text-muted-foreground hover:text-foreground"
+            >
+              Clear filters
+            </button>
+          )}
+          <span className="text-xs text-muted-foreground">
+            {visibleItems.length} {visibleItems.length === 1 ? "result" : "results"}
+          </span>
+        </div>
+
         <div className="flex-1 overflow-y-auto p-8">
           {visibleItems.length === 0 ? (
             <div className="mx-auto max-w-md rounded-2xl border border-dashed border-border p-10 text-center">
               <GitBranch className="mx-auto h-10 w-10 text-muted-foreground" />
-              <h2 className="mt-4 font-semibold">No automations here yet</h2>
+              <h2 className="mt-4 font-semibold">
+                {folderFilteredItems.length === 0 ? "No automations here yet" : "No matches"}
+              </h2>
               <p className="mt-1 text-sm text-muted-foreground">
-                Create a flow, set up a comment automation, or start from a template.
+                {folderFilteredItems.length === 0
+                  ? "Create a flow, set up a comment automation, or start from a template."
+                  : "Nothing matches your search or filters. Try clearing them."}
               </p>
             </div>
           ) : (
