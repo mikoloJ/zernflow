@@ -1073,6 +1073,8 @@ export interface Database {
           dm_sent: boolean;
           reply_sent: boolean;
           error: string | null;
+          manual_reply_text: string | null;
+          manual_replied_at: string | null;
           created_at: string;
         };
         Insert: {
@@ -1090,6 +1092,8 @@ export interface Database {
           dm_sent?: boolean;
           reply_sent?: boolean;
           error?: string | null;
+          manual_reply_text?: string | null;
+          manual_replied_at?: string | null;
           created_at?: string;
         };
         Update: {
@@ -1098,6 +1102,8 @@ export interface Database {
           dm_sent?: boolean;
           reply_sent?: boolean;
           error?: string | null;
+          manual_reply_text?: string | null;
+          manual_replied_at?: string | null;
         };
         Relationships: [
           {
