@@ -22,6 +22,7 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft, Save, Rocket, Loader2, History, Play, Download, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { PlatformIcon } from "@/components/platform-icon";
 import { createClient } from "@/lib/supabase/client";
 import type { Database, FlowStatus, Json } from "@/lib/types/database";
 
@@ -66,8 +67,17 @@ const nodeTypes: NodeTypes = {
   enrollSequence: ActionNode,
 };
 
+type ChannelRow = {
+  id: string;
+  platform: string;
+  username: string | null;
+  display_name: string | null;
+};
+
 interface FlowCanvasProps {
   flow: Flow;
+  channels?: ChannelRow[];
+  initialChannelIds?: string[] | null;
 }
 
 let nodeId = 0;
@@ -94,7 +104,7 @@ function getDefaultData(type: string, actionType?: string): Record<string, unkno
   }
 }
 
-function FlowCanvasInner({ flow }: FlowCanvasProps) {
+function FlowCanvasInner({ flow, channels = [], initialChannelIds = null }: FlowCanvasProps) {
   const router = useRouter();
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const { screenToFlowPosition } = useReactFlow();
@@ -118,6 +128,10 @@ function FlowCanvasInner({ flow }: FlowCanvasProps) {
   const [testPanelOpen, setTestPanelOpen] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [publishDialogOpen, setPublishDialogOpen] = useState(false);
+  const [selectedChannelIds, setSelectedChannelIds] = useState<Set<string>>(
+    () => new Set(initialChannelIds ?? channels.map((c) => c.id)),
+  );
   const [deleting, setDeleting] = useState(false);
 
   const selectedNode = selectedNodeId
@@ -282,9 +296,17 @@ function FlowCanvasInner({ flow }: FlowCanvasProps) {
     try {
       // First save the current state
       await saveFlow();
+      // channelIds: null means "all channels" (unrestricted); an array scopes
+      // the flow's triggers to exactly those channels.
+      const channelIds =
+        channels.length === 0 || selectedChannelIds.size === channels.length
+          ? null
+          : Array.from(selectedChannelIds);
       // Then call the publish API which increments version and saves snapshot
       const res = await fetch(`/api/v1/flows/${flow.id}/publish`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ channelIds }),
       });
       if (!res.ok) {
         console.error("Failed to publish flow");
@@ -294,11 +316,21 @@ function FlowCanvasInner({ flow }: FlowCanvasProps) {
       }
       setSaveError(null);
       setLastSaved(new Date());
+      setPublishDialogOpen(false);
       router.refresh();
     } finally {
       setPublishing(false);
     }
-  }, [saveFlow, flow.id]);
+  }, [saveFlow, flow.id, channels, selectedChannelIds, router]);
+
+  const toggleChannel = useCallback((channelId: string) => {
+    setSelectedChannelIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(channelId)) next.delete(channelId);
+      else next.add(channelId);
+      return next;
+    });
+  }, []);
 
   return (
     <div className="flex h-full flex-col">
@@ -418,7 +450,7 @@ function FlowCanvasInner({ flow }: FlowCanvasProps) {
             Save
           </button>
           <button
-            onClick={handlePublish}
+            onClick={() => setPublishDialogOpen(true)}
             disabled={publishing}
             className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-50"
           >
@@ -455,6 +487,69 @@ function FlowCanvasInner({ flow }: FlowCanvasProps) {
           />
         </div>
       </div>
+
+      {publishDialogOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div
+            className="fixed inset-0 bg-black/50"
+            onClick={() => !publishing && setPublishDialogOpen(false)}
+          />
+          <div className="relative z-10 w-full max-w-sm rounded-xl border border-border bg-card p-6 shadow-lg">
+            <h3 className="text-sm font-semibold">Publish &ldquo;{flowName}&rdquo;</h3>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Choose which connected channels this flow should respond on.
+            </p>
+            {channels.length === 0 ? (
+              <p className="mt-4 text-xs text-muted-foreground">
+                No channels connected yet — this flow will publish unrestricted and start
+                responding as soon as a channel is connected.
+              </p>
+            ) : (
+              <div className="mt-4 space-y-1.5">
+                {channels.map((c) => (
+                  <label
+                    key={c.id}
+                    className="flex items-center gap-2.5 rounded-lg border border-border px-3 py-2 text-sm hover:bg-accent/50 cursor-pointer"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedChannelIds.has(c.id)}
+                      onChange={() => toggleChannel(c.id)}
+                      className="h-4 w-4 rounded border-border"
+                    />
+                    <PlatformIcon platform={c.platform} size={16} />
+                    <span className="flex-1 truncate">
+                      {c.display_name || c.username || c.platform}
+                    </span>
+                    <span className="text-xs capitalize text-muted-foreground">{c.platform}</span>
+                  </label>
+                ))}
+              </div>
+            )}
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                onClick={() => setPublishDialogOpen(false)}
+                disabled={publishing}
+                className="rounded-lg border border-border px-3 py-1.5 text-sm font-medium hover:bg-accent transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handlePublish}
+                disabled={publishing || (channels.length > 0 && selectedChannelIds.size === 0)}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
+              >
+                {publishing ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Rocket className="h-3.5 w-3.5" />
+                )}
+                Publish
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Canvas area */}
       <div className="flex flex-1 overflow-hidden">

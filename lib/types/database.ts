@@ -533,6 +533,7 @@ export interface Database {
           config: Json;
           priority: number;
           is_active: boolean;
+          managed_by_canvas: boolean;
           created_at: string;
         };
         Insert: {
@@ -543,6 +544,7 @@ export interface Database {
           config?: Json;
           priority?: number;
           is_active?: boolean;
+          managed_by_canvas?: boolean;
           created_at?: string;
         };
         Update: {
@@ -551,6 +553,7 @@ export interface Database {
           config?: Json;
           priority?: number;
           is_active?: boolean;
+          managed_by_canvas?: boolean;
         };
         Relationships: [
           {
