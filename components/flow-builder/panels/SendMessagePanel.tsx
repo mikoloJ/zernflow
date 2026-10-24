@@ -429,7 +429,7 @@ function MessageEditor({
                     Quick Replies ({(message.quickReplies || []).length}/13)
                   </label>
                 </div>
-                {(message.quickReplies || []).length < 13 && (
+                {(message.quickReplies || []).length < 13 && !(message.buttons || []).length && (
                   <button
                     type="button"
                     onClick={addQuickReply}
@@ -440,15 +440,23 @@ function MessageEditor({
                   </button>
                 )}
               </div>
-              <p className="mb-1.5 flex items-center gap-1 text-[11px] text-muted-foreground/60">
-                <Link2 className="h-2.5 w-2.5" />
-                Each quick reply gets its own connector dot on the node — drag from it
-                to send that specific reply down its own path. Meta caps these at 13
-                per message and 20 characters per label; on Instagram they&apos;re also
-                invisible to people who don&apos;t yet follow the account (their reply lands
-                in Message Requests, where quick replies don&apos;t render) — use Buttons or
-                a Carousel card instead if that matters here.
-              </p>
+              {(message.buttons || []).length > 0 ? (
+                <p className="mb-1.5 text-[11px] text-amber-600">
+                  This message already has buttons — Meta rejects a message carrying both
+                  buttons and quick replies, so remove the buttons below first if you need
+                  quick replies instead.
+                </p>
+              ) : (
+                <p className="mb-1.5 flex items-center gap-1 text-[11px] text-muted-foreground/60">
+                  <Link2 className="h-2.5 w-2.5" />
+                  Each quick reply gets its own connector dot on the node — drag from it
+                  to send that specific reply down its own path. Meta caps these at 13
+                  per message and 20 characters per label; on Instagram they&apos;re also
+                  invisible to people who don&apos;t yet follow the account (their reply lands
+                  in Message Requests, where quick replies don&apos;t render) — use Buttons or
+                  a Carousel card instead if that matters here.
+                </p>
+              )}
               {(message.quickReplies || []).map((qr, i) => (
                 <div key={i} className="mb-2 flex items-center gap-2">
                   <input
@@ -486,7 +494,7 @@ function MessageEditor({
                     Buttons ({(message.buttons || []).length}/3)
                   </label>
                 </div>
-                {(message.buttons || []).length < 3 && (
+                {(message.buttons || []).length < 3 && !(message.quickReplies || []).length && (
                   <button
                     type="button"
                     onClick={addButton}
@@ -497,14 +505,23 @@ function MessageEditor({
                   </button>
                 )}
               </div>
-              <p className="mb-1.5 flex items-center gap-1 text-[11px] text-muted-foreground/60">
-                <Link2 className="h-2.5 w-2.5" />
-                Postback buttons each get their own connector dot on the node, so you
-                can send every button to a different next step. URL buttons just open
-                the link and have nothing to connect. Meta caps these at 3 per message
-                and 20 characters per label — switch to Carousel above for more options
-                (up to 10 cards, 3 buttons each).
-              </p>
+              {(message.quickReplies || []).length > 0 ? (
+                <p className="mb-1.5 text-[11px] text-amber-600">
+                  This message already has quick replies — Meta rejects a message carrying
+                  both quick replies and buttons. If you want a button here, send it as its
+                  own follow-up message instead (connect a quick reply to a new Send
+                  Message node with the button on it).
+                </p>
+              ) : (
+                <p className="mb-1.5 flex items-center gap-1 text-[11px] text-muted-foreground/60">
+                  <Link2 className="h-2.5 w-2.5" />
+                  Postback buttons each get their own connector dot on the node, so you
+                  can send every button to a different next step. URL buttons just open
+                  the link and have nothing to connect. Meta caps these at 3 per message
+                  and 20 characters per label — switch to Carousel above for more options
+                  (up to 10 cards, 3 buttons each).
+                </p>
+              )}
               {(message.buttons || []).map((btn, i) => (
                 <div
                   key={i}

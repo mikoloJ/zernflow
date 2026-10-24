@@ -75,3 +75,35 @@ describe("adaptMessage for whatsapp", () => {
     expect(adapted.template?.type).toBe("generic");
   });
 });
+
+/**
+ * Meta rejects a message carrying both buttons and quick replies outright
+ * ("quickReplies and buttons are mutually exclusive"), failing the whole
+ * send. The editor (SendMessagePanel) now prevents building one this way,
+ * but stale data (an older flow, an import, a hand edit) can still carry
+ * both — this is the last line of defense, degrading instead of failing.
+ */
+describe("adaptMessage for facebook/instagram with both buttons and quickReplies", () => {
+  it("drops buttons and keeps quick replies", () => {
+    const adapted = adaptMessage(
+      {
+        text: "Pick one",
+        buttons: [{ title: "Learn more", type: "url", url: "https://example.com" }],
+        quickReplies: [{ title: "A", payload: "a" }],
+      },
+      "facebook"
+    );
+
+    expect(adapted.quickReplies).toEqual([{ title: "A", payload: "a" }]);
+    expect(adapted.buttons).toBeUndefined();
+  });
+
+  it("still passes buttons through when there are no quick replies", () => {
+    const adapted = adaptMessage(
+      { text: "Pick one", buttons: [{ title: "Learn more", type: "url", url: "https://example.com" }] },
+      "instagram"
+    );
+
+    expect(adapted.buttons).toEqual([{ title: "Learn more", type: "url", url: "https://example.com" }]);
+  });
+});

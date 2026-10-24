@@ -112,12 +112,22 @@ function adaptForMeta(content: MessageContent): AdaptedMessage {
     return result;
   }
 
-  // Pass through buttons and quick replies for the SDK
-  if (content.buttons?.length) {
-    result.buttons = content.buttons;
-  }
+  // Pass through buttons and quick replies for the SDK. Meta rejects a
+  // message carrying both outright ("quickReplies and buttons are mutually
+  // exclusive") — the editor now prevents building one this way, but this is
+  // the last line of defense against stale/imported/hand-edited data still
+  // getting sent and failing the whole message instead of degrading. Quick
+  // replies win: they support up to 13 branches vs. 3 for buttons, so they're
+  // almost always the one actually carrying the routing this message needs.
   if (content.quickReplies?.length) {
     result.quickReplies = content.quickReplies;
+    if (content.buttons?.length) {
+      console.warn(
+        "adaptForMeta: message has both buttons and quickReplies, which Meta rejects together — dropping buttons.",
+      );
+    }
+  } else if (content.buttons?.length) {
+    result.buttons = content.buttons;
   }
 
   return result;
