@@ -26,6 +26,8 @@ export interface ActionNodeProps {
   url?: string;
   flowId?: string;
   message?: string;
+  text?: string;
+  sequenceId?: string;
   paths?: Array<{ name: string; weight: number }>;
   timeout?: number;
   timeoutUnit?: string;
@@ -95,7 +97,16 @@ const actionConfig: Record<
     label: "Smart Delay",
     color: "bg-gray-500",
   },
+  enrollSequence: {
+    icon: Bell,
+    label: "Enroll in Sequence",
+    color: "bg-gray-500",
+  },
 };
+
+function truncate(text: string, max = 60): string {
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
 
 function getSummary(nodeData: ActionNodeProps): string | null {
   const type = nodeData.actionType;
@@ -131,14 +142,25 @@ function getSummary(nodeData: ActionNodeProps): string | null {
       return nodeData.timeout
         ? `Wait up to ${nodeData.timeout} ${nodeData.timeoutUnit || "minutes"}`
         : null;
+    case "privateReply":
+    case "commentReply":
+      return nodeData.text ? truncate(nodeData.text) : null;
+    case "enrollSequence":
+      return nodeData.sequenceId ? `Sequence: ${nodeData.sequenceId.slice(0, 8)}...` : null;
     default:
       return null;
   }
 }
 
-export function ActionNode({ data, selected }: NodeProps) {
+export function ActionNode({ data, selected, type }: NodeProps) {
   const nodeData = data as ActionNodeProps;
-  const actionType = nodeData.actionType || "addTag";
+  // Nodes created via the node palette carry type: "action" with
+  // data.actionType as the discriminator; nodes built directly against the
+  // flow engine's node types (imports, scripted builds, templates) carry
+  // their specific type ("addTag", "privateReply", ...) as the node's own
+  // `type` instead, with no data.actionType at all. Fall back to the node's
+  // own type so both shapes render correctly.
+  const actionType = nodeData.actionType || (type as NodeType) || "addTag";
   const config = actionConfig[actionType] || {
     icon: Cog,
     label: "Action",

@@ -45,6 +45,25 @@ const nodeTypes: NodeTypes = {
   delay: DelayNode,
   action: ActionNode,
   aiResponse: AiResponseNode,
+  // The flow engine (lib/flow-engine/engine.ts) and simulator execute nodes
+  // by these specific type strings directly, rather than a generic "action"
+  // type with a data.actionType discriminator. Route each one to ActionNode
+  // too, so a flow built or imported with these types (not just ones built
+  // via the node palette, which always uses "action") still renders instead
+  // of falling back to React Flow's blank default node.
+  addTag: ActionNode,
+  removeTag: ActionNode,
+  setCustomField: ActionNode,
+  httpRequest: ActionNode,
+  goToFlow: ActionNode,
+  humanTakeover: ActionNode,
+  subscribe: ActionNode,
+  unsubscribe: ActionNode,
+  commentReply: ActionNode,
+  privateReply: ActionNode,
+  abSplit: ActionNode,
+  smartDelay: ActionNode,
+  enrollSequence: ActionNode,
 };
 
 interface FlowCanvasProps {
