@@ -34,7 +34,7 @@ export type SimulationStepResult =
   | { type: "ai_response"; mode: "skipped" | "generated"; text?: string }
   | { type: "split"; selectedPath: string; weight: number }
   | { type: "smart_delay" }
-  | { type: "human_takeover" }
+  | { type: "human_takeover"; message?: string }
   | { type: "go_to_flow"; flowId: string }
   | { type: "enroll_sequence"; sequenceId: string }
   | { type: "comment_reply"; text: string }
@@ -412,11 +412,14 @@ export function simulateFlow(
       }
 
       case "humanTakeover": {
+        const message = data.message
+          ? interpolate(data.message as string, variables)
+          : undefined;
         steps.push({
           nodeId: node.id,
           nodeType: "humanTakeover",
           nodeLabel: label,
-          result: { type: "human_takeover" },
+          result: { type: "human_takeover", message },
         });
         shouldPause = true;
         break;

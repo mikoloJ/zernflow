@@ -108,8 +108,8 @@ function truncate(text: string, max = 60): string {
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
 
-function getSummary(nodeData: ActionNodeProps): string | null {
-  const type = nodeData.actionType;
+function getSummary(nodeData: ActionNodeProps, actionType?: string): string | null {
+  const type = actionType;
   if (!type) return null;
 
   switch (type) {
@@ -167,8 +167,13 @@ export function ActionNode({ data, selected, type }: NodeProps) {
     color: "bg-gray-500",
   };
   const Icon = config.icon;
-  const label = nodeData.label || config.label;
-  const summary = getSummary(nodeData);
+  // A custom label (set via the node sidebar) is the headline, with the
+  // summary as detail below it. Without one, the summary — the actual
+  // configured content (the tag name, the message text, ...) — is the
+  // headline, since the colored header above already names the node type;
+  // repeating "Add Tag" as a second, generic headline said nothing new.
+  const label = nodeData.label;
+  const summary = getSummary(nodeData, actionType);
 
   const isAbSplit = actionType === "abSplit";
   const paths = isAbSplit ? nodeData.paths || [] : [];
@@ -195,11 +200,15 @@ export function ActionNode({ data, selected, type }: NodeProps) {
         <span className="text-xs font-semibold">{config.label}</span>
       </div>
       <div className="p-3">
-        <p className="text-sm font-medium">{label}</p>
+        {label && <p className="text-sm font-medium">{label}</p>}
         {summary ? (
-          <p className="mt-1 truncate text-xs text-muted-foreground">{summary}</p>
+          <p className={cn("truncate text-xs text-muted-foreground", label && "mt-1")}>
+            {summary}
+          </p>
         ) : (
-          <p className="mt-1 text-xs text-muted-foreground italic">Not configured</p>
+          <p className={cn("text-xs text-muted-foreground italic", label && "mt-1")}>
+            Not configured
+          </p>
         )}
       </div>
       {isAbSplit && paths.length > 0 ? (

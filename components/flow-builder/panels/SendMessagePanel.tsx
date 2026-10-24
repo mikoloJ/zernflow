@@ -444,9 +444,9 @@ function MessageEditor({
                 <Link2 className="h-2.5 w-2.5" />
                 Each quick reply gets its own connector dot on the node — drag from it
                 to send that specific reply down its own path. Meta caps these at 13
-                per message and 20 characters per label; on Instagram they're also
-                invisible to people who don't yet follow the account (their reply lands
-                in Message Requests, where quick replies don't render) — use Buttons or
+                per message and 20 characters per label; on Instagram they&apos;re also
+                invisible to people who don&apos;t yet follow the account (their reply lands
+                in Message Requests, where quick replies don&apos;t render) — use Buttons or
                 a Carousel card instead if that matters here.
               </p>
               {(message.quickReplies || []).map((qr, i) => (

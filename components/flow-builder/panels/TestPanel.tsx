@@ -230,9 +230,14 @@ export function TestPanel({
 
       case "human_takeover":
         return (
-          <p className="text-xs text-muted-foreground">
-            Automation paused, flagged for human review
-          </p>
+          <div className="space-y-1">
+            {r.message && (
+              <p className="rounded-lg bg-muted/50 px-2.5 py-1.5 text-xs">{r.message}</p>
+            )}
+            <p className="text-xs text-muted-foreground">
+              Automation paused, flagged for human review
+            </p>
+          </div>
         );
 
       case "go_to_flow":

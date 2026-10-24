@@ -18,7 +18,16 @@ interface TriggerPanelData {
   alsoMatchInDms?: boolean;
   frequency?: "always" | "once_per_24h";
   skipStoryReplies?: boolean;
+  replyText?: string | string[];
   [key: string]: unknown;
+}
+
+/** The public reply is one string, or several variants A/B'd at random per
+ *  reply (see lib/comment-processor.ts) — always edited here as a list. */
+function replyVariants(replyText: string | string[] | undefined): string[] {
+  if (Array.isArray(replyText)) return replyText;
+  if (typeof replyText === "string" && replyText) return [replyText];
+  return [];
 }
 
 interface TriggerPanelProps {
@@ -241,18 +250,52 @@ export function TriggerPanel({ data: rawData, onChange }: TriggerPanelProps) {
           />
 
           <div>
-            <label className="mb-2 block text-xs font-semibold text-foreground">
-              Public reply under the comment (optional)
-            </label>
-            <input
-              type="text"
-              value={typeof data.replyText === "string" ? data.replyText : ""}
-              onChange={(e) => onChange({ ...data, replyText: e.target.value })}
-              placeholder="Sent! Check your DMs 📩"
-              className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/60 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-            />
+            <div className="mb-2 flex items-center justify-between">
+              <label className="block text-xs font-semibold text-foreground">
+                Public reply under the comment (optional)
+              </label>
+              <button
+                type="button"
+                onClick={() =>
+                  onChange({ ...data, replyText: [...replyVariants(data.replyText), ""] })
+                }
+                className="flex items-center gap-1 text-xs font-medium text-emerald-600 hover:text-emerald-700"
+              >
+                <Plus className="h-3 w-3" />
+                Add variant
+              </button>
+            </div>
+            <div className="space-y-2">
+              {replyVariants(data.replyText).map((variant, index) => (
+                <div key={index} className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={variant}
+                    onChange={(e) => {
+                      const next = replyVariants(data.replyText);
+                      next[index] = e.target.value;
+                      onChange({ ...data, replyText: next });
+                    }}
+                    placeholder="Sent! Check your DMs 📩"
+                    className="flex-1 rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/60 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = replyVariants(data.replyText).filter((_, i) => i !== index);
+                      onChange({ ...data, replyText: next });
+                    }}
+                    className="rounded p-1 text-muted-foreground/60 hover:bg-muted hover:text-muted-foreground"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
             <p className="mt-1.5 text-xs text-muted-foreground">
-              Posted publicly under their comment so others see it works. Leave empty to skip.
+              Posted publicly under their comment so others see it works. Leave empty to skip. Add
+              more than one variant and a random one is used each time — handy so it doesn&apos;t
+              look automated.
             </p>
           </div>
         </>

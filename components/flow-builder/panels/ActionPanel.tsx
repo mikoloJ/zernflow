@@ -20,6 +20,8 @@ interface ActionPanelData {
   flowId?: string;
   returnAfter?: boolean;
   message?: string;
+  text?: string;
+  imageUrl?: string;
   paths?: Array<{ name: string; weight: number }>;
   timeout?: number;
   timeoutUnit?: string;
@@ -57,6 +59,10 @@ export function ActionPanel({ data: rawData, onChange }: ActionPanelProps) {
       return <SubscribeConfig data={data} onChange={onChange} />;
     case "humanTakeover":
       return <HumanTakeoverConfig data={data} onChange={onChange} />;
+    case "privateReply":
+      return <PrivateReplyConfig data={data} onChange={onChange} />;
+    case "commentReply":
+      return <CommentReplyConfig data={data} onChange={onChange} />;
     case "abSplit":
       return <ABSplitConfig data={data} onChange={onChange} />;
     case "smartDelay":
@@ -378,6 +384,69 @@ function HumanTakeoverConfig({ data, onChange }: ActionSubPanelProps) {
         <p className="mt-1.5 text-xs text-muted-foreground">
           This message will be visible to agents as an internal note.
         </p>
+      </div>
+    </div>
+  );
+}
+
+/* ───────── Private Reply Config ───────── */
+function PrivateReplyConfig({ data, onChange }: ActionSubPanelProps) {
+  return (
+    <div className="space-y-4">
+      <div className="rounded-lg border border-border bg-muted p-4">
+        <p className="text-sm font-medium text-foreground">Send a private DM</p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Sent via Instagram&apos;s private-reply endpoint — the one way to message a
+          commenter who has never DMed the account before. Works once per comment, text only
+          (no buttons or quick replies).
+        </p>
+      </div>
+      <div>
+        <label className="mb-2 block text-xs font-semibold text-foreground">Message</label>
+        <textarea
+          value={data.text || ""}
+          onChange={(e) => onChange({ ...data, text: e.target.value })}
+          placeholder="Hi {{first_name}}, thanks for your comment..."
+          rows={5}
+          className="w-full resize-none rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/60 focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
+        />
+      </div>
+      <div>
+        <label className="mb-2 block text-xs font-semibold text-foreground">
+          Image URL (optional)
+        </label>
+        <input
+          type="text"
+          value={data.imageUrl || ""}
+          onChange={(e) => onChange({ ...data, imageUrl: e.target.value })}
+          placeholder="https://..."
+          className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/60 focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
+        />
+      </div>
+    </div>
+  );
+}
+
+/* ───────── Comment Reply Config ───────── */
+function CommentReplyConfig({ data, onChange }: ActionSubPanelProps) {
+  return (
+    <div className="space-y-4">
+      <div className="rounded-lg border border-border bg-muted p-4">
+        <p className="text-sm font-medium text-foreground">Reply publicly on the comment</p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Posted as a public reply under the comment that triggered this flow — visible to
+          everyone, not just the commenter.
+        </p>
+      </div>
+      <div>
+        <label className="mb-2 block text-xs font-semibold text-foreground">Reply text</label>
+        <textarea
+          value={data.text || ""}
+          onChange={(e) => onChange({ ...data, text: e.target.value })}
+          placeholder="Sent! Check your DMs 📩"
+          rows={3}
+          className="w-full resize-none rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/60 focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
+        />
       </div>
     </div>
   );

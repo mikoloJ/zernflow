@@ -112,9 +112,32 @@ const nodeTypeConfig: Record<string, { label: string; icon: typeof Cog; color: s
   },
 };
 
+// Node types the flow engine (lib/flow-engine/engine.ts) executes directly by
+// their own specific type string, rather than "action" + a data.actionType
+// discriminator (see components/flow-builder/flow-canvas.tsx's nodeTypes for
+// the matching canvas-rendering fix). A node built this way — by a script,
+// an import, or a template, not the node palette — needs the same routing
+// here, or its editor panel is just a "no configuration available" dead end.
+const ACTION_FAMILY_TYPES = new Set([
+  "addTag",
+  "removeTag",
+  "setCustomField",
+  "httpRequest",
+  "goToFlow",
+  "humanTakeover",
+  "subscribe",
+  "unsubscribe",
+  "commentReply",
+  "privateReply",
+  "abSplit",
+  "smartDelay",
+  "enrollSequence",
+]);
+
 export function NodeConfigSidebar({ node, nodes, edges, onChange, onClose, onDelete }: NodeConfigSidebarProps) {
   const nodeType = node.type || "action";
-  const config = nodeTypeConfig[nodeType] || nodeTypeConfig.action;
+  const isActionFamily = nodeType === "action" || ACTION_FAMILY_TYPES.has(nodeType);
+  const config = nodeTypeConfig[isActionFamily ? "action" : nodeType] || nodeTypeConfig.action;
   const Icon = config.icon;
 
   // Close on Escape
@@ -164,6 +187,17 @@ export function NodeConfigSidebar({ node, nodes, edges, onChange, onClose, onDel
       case "action":
         return <ActionPanel data={data} onChange={handleChange} />;
       default:
+        if (isActionFamily) {
+          // data.actionType is the discriminator ActionPanel switches on; a
+          // node built with its specific type as the node's own `type` (see
+          // above) never had that field set, so fall back to the node's type.
+          return (
+            <ActionPanel
+              data={{ ...data, actionType: data.actionType ?? nodeType }}
+              onChange={handleChange}
+            />
+          );
+        }
         return (
           <p className="text-sm text-muted-foreground">
             No configuration panel available for this node type.

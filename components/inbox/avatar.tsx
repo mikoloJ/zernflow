@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { cn } from "@/lib/utils";
 
 /** Profile picture with an initials fallback (Meta picture URLs expire). */
@@ -14,8 +14,15 @@ export function Avatar({
   className?: string;
 }) {
   const [failed, setFailed] = useState(false);
-  // A fresh picture URL (Meta links expire) deserves a new attempt.
-  useEffect(() => setFailed(false), [src]);
+  // A fresh picture URL (Meta links expire) deserves a new attempt. Reset
+  // during render (React's documented pattern for "adjust state when a prop
+  // changes") rather than in an effect, which would cause an extra
+  // post-commit render on every src change.
+  const [trackedSrc, setTrackedSrc] = useState(src);
+  if (src !== trackedSrc) {
+    setTrackedSrc(src);
+    setFailed(false);
+  }
   const initial = (name ?? "?").trim().replace(/^@/, "").charAt(0).toUpperCase() || "?";
 
   if (src && !failed) {

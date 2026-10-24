@@ -11,6 +11,7 @@ import type {
   SetFieldNodeData,
   HttpRequestNodeData,
   GoToFlowNodeData,
+  HumanTakeoverNodeData,
   ABSplitNodeData,
   CommentReplyNodeData,
   PrivateReplyNodeData,
@@ -385,7 +386,7 @@ async function executeNode(
     case "goToFlow":
       return executeGoToFlow(supabase, node.data as GoToFlowNodeData, context, sessionId);
     case "humanTakeover":
-      return executeHumanTakeover(supabase, context, sessionId);
+      return executeHumanTakeover(supabase, node.data as HumanTakeoverNodeData, context, sessionId);
     case "subscribe":
     case "unsubscribe":
       return executeSubscription(supabase, node.type, context);
@@ -924,22 +925,40 @@ async function executeSetField(
   data: SetFieldNodeData,
   context: FlowExecutionContext
 ) {
-  // Find field definition
-  const { data: fieldDef } = await supabase
+  // Find or create the field definition. There is no separate "create a
+  // custom field" UI anywhere in the app, so without this, a Set Field node
+  // referencing a slug that was never pre-seeded silently did nothing on
+  // every run: the value never got saved, and every condition or
+  // {{variable}} reading it saw it as permanently unset. A plain
+  // select-then-insert (rather than upsert) so an existing definition's
+  // type is never reset back to "text" on every subsequent run.
+  let fieldId: string | undefined;
+  const { data: existingField } = await supabase
     .from("custom_field_definitions")
     .select("id")
     .eq("workspace_id", context.workspaceId)
     .eq("slug", data.fieldSlug)
-    .single();
+    .maybeSingle();
 
-  if (!fieldDef) return;
+  if (existingField) {
+    fieldId = existingField.id;
+  } else {
+    const { data: createdField } = await supabase
+      .from("custom_field_definitions")
+      .insert({ workspace_id: context.workspaceId, slug: data.fieldSlug, name: data.fieldSlug, type: "text" })
+      .select("id")
+      .single();
+    fieldId = createdField?.id;
+  }
+
+  if (!fieldId) return;
 
   const value = interpolateVariables(data.value, context.variables || {});
 
   await supabase.from("contact_custom_fields").upsert(
     {
       contact_id: context.contactId,
-      field_id: fieldDef.id,
+      field_id: fieldId,
       value,
     },
     { onConflict: "contact_id,field_id" }
@@ -998,9 +1017,18 @@ async function executeGoToFlow(
 
 async function executeHumanTakeover(
   supabase: SupabaseClient<Database>,
+  data: HumanTakeoverNodeData,
   context: FlowExecutionContext,
   sessionId: string
 ) {
+  // The node's message is what the contact sees right before an agent takes
+  // over (e.g. "A member of the team will reply shortly") — send it the same
+  // way a Send Message node would, including its comment-flow private-reply
+  // fallback, rather than silently dropping it as the node previously did.
+  if (data.message) {
+    await executeSendMessage(supabase, { messages: [{ text: data.message }] }, context);
+  }
+
   // Pause automation on the conversation
   await supabase
     .from("conversations")

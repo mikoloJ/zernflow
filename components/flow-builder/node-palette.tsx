@@ -15,6 +15,8 @@ import {
   Hourglass,
   Sparkles,
   ListOrdered,
+  MessageSquareReply,
+  Megaphone,
 } from "lucide-react";
 import type { DragEvent } from "react";
 
@@ -141,6 +143,20 @@ const categories: PaletteCategory[] = [
         label: "Enroll in Sequence",
         icon: ListOrdered,
         actionType: "enrollSequence",
+      },
+      {
+        type: "action",
+        nodeType: "privateReply",
+        label: "Private Reply",
+        icon: MessageSquareReply,
+        actionType: "privateReply",
+      },
+      {
+        type: "action",
+        nodeType: "commentReply",
+        label: "Comment Reply",
+        icon: Megaphone,
+        actionType: "commentReply",
       },
     ],
   },

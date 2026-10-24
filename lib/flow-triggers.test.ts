@@ -64,6 +64,23 @@ describe("buildDesiredTriggers", () => {
     expect(rows[1].config).not.toHaveProperty("replyText");
   });
 
+  it("accepts several public-reply variants to A/B, dropping blank/non-string entries", () => {
+    const rows = buildDesiredTriggers(
+      [
+        triggerNode({
+          triggerType: "comment_keyword",
+          keywords: [{ value: "focus", matchType: "contains" }],
+          replyText: ["Sent! Check your DMs 📩", "", "Done ✅ Check your inbox.", 42],
+        }),
+      ],
+      FLOW_ID,
+    );
+
+    expect(rows[0].config).toMatchObject({
+      replyText: ["Sent! Check your DMs 📩", "Done ✅ Check your inbox."],
+    });
+  });
+
   it("does not emit a DM row without keywords, which would match every message", () => {
     const rows = buildDesiredTriggers(
       [triggerNode({ triggerType: "comment_keyword", alsoMatchInDms: true, keywords: [] })],
@@ -103,5 +120,14 @@ describe("buildDesiredTriggers", () => {
     );
 
     expect(rows[0]).toMatchObject({ type: "postback", priority: 5, config: { payload: "GET_STARTED" } });
+  });
+
+  it("also accepts a plain top-level data.priority, not just data.config.priority", () => {
+    const rows = buildDesiredTriggers(
+      [triggerNode({ triggerType: "postback", payload: "GET_STARTED", priority: 30 })],
+      FLOW_ID,
+    );
+
+    expect(rows[0].priority).toBe(30);
   });
 });

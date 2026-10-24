@@ -54,20 +54,32 @@ export function buildDesiredTriggers(
         if (nodeConfig.matchType) config.matchType = nodeConfig.matchType;
         const postIds = data.postIds ?? nodeConfig.postIds;
         if (Array.isArray(postIds) && postIds.length > 0) config.postIds = postIds;
+        // A single text, or several variants to A/B (one picked at random per
+        // reply — see lib/comment-processor.ts).
         const replyText = data.replyText ?? nodeConfig.replyText;
-        if (typeof replyText === "string" && replyText.trim()) config.replyText = replyText;
+        if (Array.isArray(replyText)) {
+          const variants = replyText.filter((t): t is string => typeof t === "string" && t.trim().length > 0);
+          if (variants.length > 0) config.replyText = variants;
+        } else if (typeof replyText === "string" && replyText.trim()) {
+          config.replyText = replyText;
+        }
       } else if (type === "postback" || type === "quick_reply") {
         const payload = data.payload ?? nodeConfig.payload;
         if (payload !== undefined) config.payload = payload;
       }
 
+      // Same dual-shape tolerance as keywords above: the trigger panel has
+      // never had a priority control (nodeConfig.priority, i.e.
+      // data.config.priority, is template/scripted-flow-only and easy to
+      // miss), so also accept a plain top-level data.priority.
+      const priority = data.priority ?? nodeConfig.priority;
       const row: DesiredTrigger = {
         flow_id: flowId,
         channel_id: null,
         type: type as TriggerType,
         config,
         is_active: true,
-        priority: typeof nodeConfig.priority === "number" ? nodeConfig.priority : 0,
+        priority: typeof priority === "number" ? priority : 0,
       };
 
       // postIds (post scoping) and replyText (the public reply on the comment)
