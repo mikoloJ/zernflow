@@ -26,7 +26,8 @@ interface CommentKeywordConfig {
     matchType?: "exact" | "contains" | "startsWith";
   }>;
   postIds?: string[];
-  replyText?: string;
+  /** A single text, or several variants to A/B — one is picked at random per reply. */
+  replyText?: string | string[];
 }
 
 /**
@@ -198,7 +199,16 @@ export async function processComment({
     }
 
     let replySent = false;
-    if (config.replyText) {
+    const replyTextVariants = Array.isArray(config.replyText)
+      ? config.replyText.filter(Boolean)
+      : config.replyText
+        ? [config.replyText]
+        : [];
+    const replyText =
+      replyTextVariants.length > 0
+        ? replyTextVariants[Math.floor(Math.random() * replyTextVariants.length)]
+        : undefined;
+    if (replyText) {
       const { data: workspace } = await supabase
         .from("workspaces")
         .select("late_api_key_encrypted")
@@ -212,7 +222,7 @@ export async function processComment({
             path: { postId: comment.postId },
             body: {
               accountId: channel.late_account_id,
-              message: config.replyText,
+              message: replyText,
               commentId: comment.id,
             },
           });
