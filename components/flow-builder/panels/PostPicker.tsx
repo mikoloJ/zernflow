@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Check, ExternalLink, Loader2, MessageCircle, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { PlatformIcon } from "@/components/platform-icon";
 
 export interface PickerPost {
   id: string;
@@ -43,6 +44,7 @@ export function PostPicker({ value, onChange, channelId, gridOnly }: PostPickerP
   const [posts, setPosts] = useState<PickerPost[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [platformFilter, setPlatformFilter] = useState<"all" | string>("all");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -66,7 +68,17 @@ export function PostPicker({ value, onChange, channelId, gridOnly }: PostPickerP
     if (mode === "specific" && posts === null && !loading) load();
   }, [mode, posts, loading, load]);
 
-  const visible = (posts ?? []).filter((p) => !channelId || p.channelId === channelId);
+  const scopedToChannel = (posts ?? []).filter((p) => !channelId || p.channelId === channelId);
+  // Which platforms actually have posts loaded, so the tab row never offers
+  // an empty platform and never appears at all when there's only one anyway
+  // (including when `channelId` already pins this picker to a single platform).
+  const availablePlatforms = useMemo(
+    () => Array.from(new Set(scopedToChannel.map((p) => p.platform))),
+    [scopedToChannel],
+  );
+  const visible = scopedToChannel.filter(
+    (p) => platformFilter === "all" || p.platform === platformFilter,
+  );
 
   const emit = (ids: string[]) =>
     onChange(ids, visible.filter((p) => ids.includes(p.id)));
@@ -135,6 +147,39 @@ export function PostPicker({ value, onChange, channelId, gridOnly }: PostPickerP
               Refresh
             </button>
           </div>
+
+          {!channelId && availablePlatforms.length > 1 && (
+            <div className="mb-2 flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setPlatformFilter("all")}
+                className={cn(
+                  "rounded-full px-2.5 py-1 text-xs font-medium transition-colors",
+                  platformFilter === "all"
+                    ? "bg-accent text-foreground"
+                    : "text-muted-foreground hover:bg-accent/50",
+                )}
+              >
+                Both
+              </button>
+              {availablePlatforms.map((platform) => (
+                <button
+                  key={platform}
+                  type="button"
+                  onClick={() => setPlatformFilter(platform)}
+                  className={cn(
+                    "flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium capitalize transition-colors",
+                    platformFilter === platform
+                      ? "bg-accent text-foreground"
+                      : "text-muted-foreground hover:bg-accent/50",
+                  )}
+                >
+                  <PlatformIcon platform={platform} size={12} />
+                  {platform}
+                </button>
+              ))}
+            </div>
+          )}
 
           {error && (
             <p className="mb-2 rounded-md bg-amber-50 px-2 py-1.5 text-xs text-amber-800">
